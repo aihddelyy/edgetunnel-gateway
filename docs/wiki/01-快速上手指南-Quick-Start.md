@@ -32,6 +32,27 @@ docker network create -d macvlan \
 > [!TIP]
 > 群晖 NAS 用户若有多物理网口（如 `ovs_eth0` 或 `eth0`），请通过 `ip addr` 命令确认主内网通信网卡名称并替换 `parent` 参数。
 
+> [!IMPORTANT]
+> **⚠️ 核心避坑：宿主机物理网卡必须启用混杂模式 (Promiscuous Mode)**
+> Macvlan 网络机制会为 Docker 容器生成一个全新的独立虚拟 MAC 地址。默认情况下，Linux 宿主机的物理网卡若未开启混杂模式，硬件和驱动层会**直接丢弃所有“目标 MAC 不是宿主机物理网卡自身”的外来数据包**，导致局域网其他设备完全无法访问容器、出现严重丢包或连接时断时续！
+>
+> 1. **临时启用混杂模式（立即生效）**：
+>    ```bash
+>    sudo ip link set eth0 promisc on
+>    ```
+>    *(注：请将 `eth0` 替换为你实际的物理网卡名称，群晖通常为 `eth0` 或 `ovs_eth0`)*
+> 
+> 2. **群晖 NAS 开机自动持久化（防止重启失效）**：
+>    群晖 NAS 系统重启后网卡混杂模式可能会被重置，强烈建议在【群晖控制面板】➔【任务计划】中新增一个【触发的任务】（事件：开机）：
+>    - **任务名称**：`Enable_Promisc_Mode`
+>    - **用户账号**：`root`
+>    - **运行命令**：`ip link set eth0 promisc on`
+> 
+> 3. **ESXi / PVE 虚拟化环境特别提醒**：
+>    若群晖或 Linux 运行在 ESXi 或 PVE 虚拟机中，**宿主机外层的虚拟交换机（vSwitch）必须勾选放行**：
+>    - **ESXi**：在端口组安全设置中将 **【混杂模式】**、**【MAC 地址更改】** 和 **【伪造传输】** 均设为 **“接受 (Accept)”**；
+>    - **PVE**：Linux Bridge 默认放行，但若开启了虚拟防火墙需允许相关 MAC/IP 流量。
+
 ---
 
 ## 🐳 3. 使用 Docker Compose 部署
