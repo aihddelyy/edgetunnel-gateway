@@ -717,15 +717,6 @@ const webServer = http.createServer(async (req, res) => {
         if (update.quotaDisplayMode !== undefined) {
           currentConfig.quotaDisplayMode = update.quotaDisplayMode === 'total' ? 'total' : 'protocol';
         }
-        if (update.loadBalanceMode !== undefined) {
-          currentConfig.loadBalanceMode = update.loadBalanceMode === 'round-robin' ? 'round-robin' : 'sticky';
-        }
-        if (update.stickyDurationSec !== undefined) {
-          const s = parseInt(update.stickyDurationSec, 10);
-          if (!isNaN(s) && s >= 5 && s <= 3600) {
-            currentConfig.stickyDurationSec = s;
-          }
-        }
         if (update.memoryGuard) {
           currentConfig.memoryGuard = {
             ...currentConfig.memoryGuard,

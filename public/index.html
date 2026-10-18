@@ -161,20 +161,6 @@
           <div class="form-desc">支持多个域名轮询，自动进行 SNI / Host 伪装</div>
           <textarea class="form-control" id="cfg-pagesBackends" rows="3"></textarea>
         </div>
-        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
-          <label class="form-label">分流调度策略 (负载均衡模式)</label>
-          <div class="form-desc">控制多后端之间的分流算法。推荐【绝对平权轮询】，使各 Cloudflare 账号免费额度（10万次/日）获得最精准的平摊，配合底层 H2 连接池与大窗口保证极限满速</div>
-          <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.6rem;">
-            <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
-              <input type="radio" name="cfg-loadBalanceMode" value="round-robin" id="lb-mode-rr" checked style="margin-top: 3px;">
-              <span>⚖️ <b>绝对平权逐连接轮询 (默认推荐)</b>：每一个新的代理连接严格均匀地轮流分派至各个 Worker/Pages，彻底平摊多账号额度并完美适配 OpenWrt/软路由；单连接内依托底层大窗口与连接池保证速度拉满</span>
-            </label>
-            <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
-              <input type="radio" name="cfg-loadBalanceMode" value="sticky" id="lb-mode-sticky" style="margin-top: 3px;">
-              <span>🚀 <b>会话粘性模式 (单机直连备用)</b>：适合多台设备单机直连网关代理场景（非软路由透明代理）</span>
-            </label>
-          </div>
-        </div>
 
         <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
           <label class="form-label">监控中心后端额度显示口径</label>
