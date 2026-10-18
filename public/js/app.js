@@ -634,16 +634,28 @@
       }
     }
 
-    function copyText(txt) {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(txt).then(() => {
-          showToast('📋 已复制优选节点地址: ' + txt);
-        }).catch(() => {
-          prompt('请手动复制:', txt);
-        });
-      } else {
-        prompt('请手动复制:', txt);
+    // HTTP 局域网访问属于非安全上下文，navigator.clipboard 为 undefined，必须回退 execCommand
+    function copyToClipboard(text) {
+      if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
       }
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      return ok ? Promise.resolve() : Promise.reject(new Error('execCommand copy failed'));
+    }
+
+    function copyText(txt) {
+      copyToClipboard(txt).then(() => {
+        showToast('📋 已复制优选节点地址: ' + txt);
+      }).catch(() => {
+        prompt('请手动复制:', txt);
+      });
     }
 
     async function toggleBackendDomain(domain, disabled) {
@@ -1116,12 +1128,12 @@ function operator(proxies, targetPlatform) {
     function copySubStoreScript() {
       const el = document.getElementById('code-substore-script');
       if (!el) return;
-      navigator.clipboard.writeText(el.value).then(() => {
+      copyToClipboard(el.value).then(() => {
         showToast('📋 Sub-Store JS 脚本已成功复制到剪贴板！');
       }).catch(() => {
+        el.focus();
         el.select();
-        document.execCommand('copy');
-        showToast('📋 Sub-Store JS 脚本已复制！');
+        prompt('请手动复制:', el.value);
       });
     }
 
@@ -2100,6 +2112,10 @@ function renderSubAccountsCards(accounts) {
         if (loader) loader.style.display = 'none';
       }
     }
+
+    // 内联 onload 早于本脚本执行（about:blank 即时 load），必须在此处绑定
+    const cfUsageIframeEl = document.getElementById('cf-usage-iframe');
+    if (cfUsageIframeEl) cfUsageIframeEl.addEventListener('load', onCfIframeLoaded);
 
     function openCfUsageExternal() {
       const url = localStorage.getItem('cf_real_panel_url') || 'https://usagepanel.pages.dev';
