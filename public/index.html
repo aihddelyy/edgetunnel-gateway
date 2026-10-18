@@ -162,6 +162,21 @@
           <textarea class="form-control" id="cfg-pagesBackends" rows="3"></textarea>
         </div>
         <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
+          <label class="form-label">分流调度策略 (流媒体与负载均衡模式)</label>
+          <div class="form-desc">控制多后端之间的分流算法。看 YouTube、刷视频等流媒体大流量场景强烈推荐【智能会话粘性】，兼顾极限测速满速与多账户宏观平摊</div>
+          <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.6rem;">
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
+              <input type="radio" name="cfg-loadBalanceMode" value="sticky" id="lb-mode-sticky" checked style="margin-top: 3px;">
+              <span>🚀 <b>智能会话粘性 (默认推荐)</b>：同一客户端连续突发请求锁定同一后端，保持 TCP 拥塞窗口拉满（解决油管视频分片频繁切换节点导致的慢启动降速）；空闲超 60 秒自动轮换下一个后端</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
+              <input type="radio" name="cfg-loadBalanceMode" value="round-robin" id="lb-mode-rr" style="margin-top: 3px;">
+              <span>⚖️ <b>绝对平权逐包轮询</b>：每个 HTTP 请求无差别轮换后端，极度均匀但流媒体单连接窗口无法拉满</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
           <label class="form-label">监控中心后端额度显示口径</label>
           <div class="form-desc">选择监控中心后端池各个卡片上显示的额度百分比与进度条统计口径</div>
           <div style="display: flex; gap: 1.25rem; margin-top: 0.6rem; flex-wrap: wrap;">

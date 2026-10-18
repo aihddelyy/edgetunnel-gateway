@@ -979,6 +979,14 @@
           if (rProtocol) rProtocol.checked = true;
         }
 
+        if (data.loadBalanceMode === 'round-robin') {
+          const rRr = document.getElementById('lb-mode-rr');
+          if (rRr) rRr.checked = true;
+        } else {
+          const rSticky = document.getElementById('lb-mode-sticky');
+          if (rSticky) rSticky.checked = true;
+        }
+
         const tfSample = document.getElementById('cfg-trafficSampleMinutes');
         if (tfSample) tfSample.value = data.trafficSampleMinutes || 5;
 
@@ -1138,6 +1146,7 @@ function operator(proxies, targetPlatform) {
         trafficSampleMinutes: parseInt(document.getElementById('cfg-trafficSampleMinutes')?.value || '5', 10),
         cfQuotaAvoidThreshold: parseInt(document.getElementById('cfg-cfQuotaAvoidThreshold')?.value || '95', 10),
         quotaDisplayMode: document.querySelector('input[name="cfg-quotaDisplayMode"]:checked')?.value || 'protocol',
+        loadBalanceMode: document.querySelector('input[name="cfg-loadBalanceMode"]:checked')?.value || 'sticky',
         backendAccountMap: finalMapping,
         memoryGuard: {
           enabled: document.getElementById('cfg-memory-enabled') ? document.getElementById('cfg-memory-enabled').checked : true,
