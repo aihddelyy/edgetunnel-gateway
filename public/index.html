@@ -167,7 +167,7 @@
           <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.6rem;">
             <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
               <input type="radio" name="cfg-loadBalanceMode" value="sticky" id="lb-mode-sticky" checked style="margin-top: 3px;">
-              <span>🚀 <b>智能会话粘性 (默认推荐)</b>：同一客户端连续突发请求锁定同一后端，保持 TCP 拥塞窗口拉满（解决油管视频分片频繁切换节点导致的慢启动降速）；空闲超 60 秒自动轮换下一个后端</span>
+              <span>🚀 <b>智能会话粘性 (自适应 IP:Port，默认推荐)</b>：以客户端连接会话（IP:Port）为粒度智能锁定后端，自适应兼容 OpenWrt/软路由等透明代理环境，保持流媒体长连接拥塞窗口拉满；不同代理会话自动均匀轮询</span>
             </label>
             <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.88rem;">
               <input type="radio" name="cfg-loadBalanceMode" value="round-robin" id="lb-mode-rr" style="margin-top: 3px;">
