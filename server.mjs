@@ -1,4 +1,6 @@
-﻿import http from 'node:http';
+﻿import cluster from 'node:cluster';
+import os from 'node:os';
+import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,6 +47,31 @@ const metrics = {
   circuitTrips: 0
 };
 
+const configuredWorkers = parseInt(process.env.CLUSTER_WORKERS || '0', 10);
+const cpuCount = Math.max(1, os.cpus()?.length || 1);
+const isClusterEnabled = process.env.CLUSTER_MODE !== 'false' && cpuCount > 1;
+const WORKER_COUNT = configuredWorkers > 0 ? configuredWorkers : Math.min(4, cpuCount);
+
+export function broadcastConfigUpdate() {
+  if (isClusterEnabled && cluster.isPrimary) {
+    for (const id in cluster.workers) {
+      try {
+        cluster.workers[id]?.send({ type: 'config_update', config: currentConfig });
+      } catch {}
+    }
+  }
+}
+
+export function broadcastCfAccounts(accounts) {
+  if (isClusterEnabled && cluster.isPrimary) {
+    for (const id in cluster.workers) {
+      try {
+        cluster.workers[id]?.send({ type: 'cf_accounts_update', accounts });
+      } catch {}
+    }
+  }
+}
+
 const logEmitter = new EventEmitter();
 logEmitter.setMaxListeners(100);
 const MAX_LOG_BUFFER = 250;
@@ -90,9 +117,11 @@ registerLogPruner(() => {
 
 // 初始化配置与历史采样基线
 loadConfigFromFile();
-initTrafficBaseline();
-startTrafficSampler(metrics);
-startMemoryGuard();
+if (!isClusterEnabled || cluster.isPrimary) {
+  initTrafficBaseline();
+  startTrafficSampler(metrics);
+  startMemoryGuard();
+}
 
 // ==========================================
 // 2. 静态页面与通用静态资源托管
@@ -521,6 +550,11 @@ const webServer = http.createServer(async (req, res) => {
     const memStats = getMemoryStats();
     const data = {
       uptime: Math.floor((Date.now() - metrics.startTime) / 1000),
+      cluster: {
+        enabled: isClusterEnabled,
+        workerCount: isClusterEnabled ? WORKER_COUNT : 1,
+        cpuCount
+      },
       memoryMB: memStats.rssMB,
       memoryDetail: memStats,
       metrics,
@@ -588,6 +622,7 @@ const webServer = http.createServer(async (req, res) => {
         const trimmed = target.trim();
         currentConfig.defaultPrefer = trimmed;
         saveConfigToFile(currentConfig);
+        broadcastConfigUpdate();
         recordPreferActivity(trimmed);
         console.log(`[Prefer Manager] 默认优选目标已由控制台更新为: ${trimmed}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -634,6 +669,7 @@ const webServer = http.createServer(async (req, res) => {
         }
         currentConfig.disabledBackends = disabledList;
         saveConfigToFile(currentConfig);
+        broadcastConfigUpdate();
         console.log(`[Backend Switch] 节点 ${b} 状态已被设为: ${disabled ? '手动暂停 (移出池)' : '正常启用'}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, backend: b, disabled, disabledBackends: disabledList }));
@@ -729,6 +765,7 @@ const webServer = http.createServer(async (req, res) => {
           currentConfig.telegram = { ...currentConfig.telegram, ...update.telegram };
         }
         const saved = saveConfigToFile(currentConfig);
+        broadcastConfigUpdate();
         startQuotaPatrol();
         console.log(`[Web Console] 配置已由管理面板更新并热应用！(持久化保存: ${saved ? '成功' : '内存更新'})`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -840,39 +877,159 @@ const webServer = http.createServer(async (req, res) => {
 });
 
 // ==========================================
-// 4. 服务协同启动入口
+// 4. 服务协同启动入口 (支持 Cluster 多核集群模式)
 // ==========================================
-const wsServer = createWsServer(metrics, () => cachedCfAccounts);
-const xhttpGateway = createXhttpGateway(metrics, () => cachedCfAccounts);
+if (isClusterEnabled && cluster.isPrimary) {
+  // ---------------- 主进程 (Primary) ----------------
+  console.log('='.repeat(60));
+  console.log(`🚀 EdgeTunnel 本地分流网关 [Cluster 多核集群主进程] 启动 (PID: ${process.pid})`);
+  console.log(`   💻 侦测到物理/虚拟 CPU 核心数: ${cpuCount}`);
+  console.log(`   ⚡ 正在派生 ${WORKER_COUNT} 个独立工作进程 (充分释放多核心并发算力)...`);
+  console.log(`   🖥️ Web UI 管理控制台监听端口: http://0.0.0.0:${currentConfig.webPort}`);
+  console.log('='.repeat(60));
 
-wsServer.listen(currentConfig.httpPort, '0.0.0.0', () => {
-  xhttpGateway.listen(currentConfig.h2cPort, '0.0.0.0', () => {
-    webServer.listen(currentConfig.webPort, '0.0.0.0', () => {
-      console.log('='.repeat(60));
-      console.log(`🚀 EdgeTunnel 本地自适应分流网关已全部启动！(模块化架构版)`);
-      console.log(`   🔌 WebSocket (HTTP/1.1) 监听端口: ${currentConfig.httpPort}`);
-      console.log(`      • Pages 后端池: ${currentConfig.pagesBackends.join(', ')}`);
-      console.log(`   ⚡ XHTTP 双模监听端口:    ${currentConfig.h2cPort} (兼容 Mihomo H2 与 v2rayN H1)`);
-      console.log(`      • Worker 后端池: ${currentConfig.workerBackends.join(', ')}`);
-      console.log(`   🌐 默认实际 Server:     ${currentConfig.defaultPrefer}`);
-      console.log(`   🖥️ Web UI 管理控制台:    http://0.0.0.0:${currentConfig.webPort}`);
-      startQuotaPatrol();
-      recordPreferActivity(currentConfig.defaultPrefer, '系统启动初始化');
-      setTimeout(() => {
-        getCfSubAccounts(false).catch(() => {});
-      }, 1500);
-      const tgModeStr = currentConfig.telegram.proxy ? `已启用 (SOCKS5/代理: ${currentConfig.telegram.proxy})` : '已启用 (直连模式)';
-      console.log(`   📢 Telegram 告警通知:   ${currentConfig.telegram.botToken ? tgModeStr : '未配置 (已跳过)'}`);
-      const mgModeStr = (currentConfig.memoryGuard?.enabled !== false)
-        ? `已启用 (阈值: ${currentConfig.memoryGuard?.thresholdMB || 150}MB, 巡检: 每 ${currentConfig.memoryGuard?.intervalMinutes || 5} 分钟, 原生GC: ${typeof global.gc === 'function' ? '已就绪' : '未开启--expose-gc'})`
-        : '未启用';
-      console.log(`   🧠 内存守护与自动回收: ${mgModeStr}`);
-      console.log('='.repeat(60) + '\n');
+  webServer.listen(currentConfig.webPort, '0.0.0.0', () => {
+    startQuotaPatrol();
+    recordPreferActivity(currentConfig.defaultPrefer, '系统启动初始化');
+    setTimeout(() => {
+      getCfSubAccounts(false).catch(() => {});
+    }, 1500);
 
-      verifyTelegramConnectivity();
+    const tgModeStr = currentConfig.telegram.proxy ? `已启用 (SOCKS5/代理: ${currentConfig.telegram.proxy})` : '已启用 (直连模式)';
+    console.log(`   📢 Telegram 告警通知:   ${currentConfig.telegram.botToken ? tgModeStr : '未配置 (已跳过)'}`);
+    const mgModeStr = (currentConfig.memoryGuard?.enabled !== false)
+      ? `已启用 (阈值: ${currentConfig.memoryGuard?.thresholdMB || 150}MB, 巡检: 每 ${currentConfig.memoryGuard?.intervalMinutes || 5} 分钟, 原生GC: ${typeof global.gc === 'function' ? '已就绪' : '未开启--expose-gc'})`
+      : '未启用';
+    console.log(`   🧠 内存守护与自动回收: ${mgModeStr}`);
+
+    verifyTelegramConnectivity();
+  });
+
+  function forkWorker(idx) {
+    const workerIndex = idx || Math.floor(Math.random() * 100);
+    const worker = cluster.fork({ WORKER_INDEX: String(workerIndex) });
+
+    worker.on('message', (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'metrics_delta' && msg.delta) {
+        if (msg.delta.wsRequests) metrics.wsRequests += msg.delta.wsRequests;
+        if (msg.delta.xhttpRequests) metrics.xhttpRequests += msg.delta.xhttpRequests;
+        if (msg.delta.h2cRequests) metrics.h2cRequests += msg.delta.h2cRequests;
+        if (msg.delta.h1Requests) metrics.h1Requests += msg.delta.h1Requests;
+        if (msg.delta.circuitTrips) metrics.circuitTrips += msg.delta.circuitTrips;
+      } else if (msg.type === 'log') {
+        appendLog(msg.level, msg.message);
+      }
+    });
+
+    return worker;
+  }
+
+  for (let i = 1; i <= WORKER_COUNT; i++) {
+    forkWorker(i);
+  }
+
+  cluster.on('exit', (deadWorker, code, signal) => {
+    console.warn(`[Cluster Warning] ⚠️ 工作进程 PID:${deadWorker.process.pid} 异常退出 (code: ${code}, signal: ${signal})，正在毫秒级自愈拉起新进程...`);
+    setTimeout(() => forkWorker(), 500);
+  });
+
+} else if (cluster.isWorker) {
+  // ---------------- 工作进程 (Worker) ----------------
+  const workerIdx = process.env.WORKER_INDEX || process.pid;
+  const workerMetrics = {
+    startTime: Date.now(),
+    wsRequests: 0,
+    xhttpRequests: 0,
+    h2cRequests: 0,
+    h1Requests: 0,
+    alertsSent: 0,
+    circuitTrips: 0
+  };
+
+  // 监听来自主进程的广播同步
+  process.on('message', (msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'config_update' && msg.config) {
+      Object.assign(currentConfig, msg.config);
+    } else if (msg.type === 'cf_accounts_update' && msg.accounts) {
+      Object.assign(cachedCfAccounts, msg.accounts);
+    }
+  });
+
+  // 定时向主进程上报指标增量
+  let lastReported = { ws: 0, xhttp: 0, h2c: 0, h1: 0, trips: 0 };
+  setInterval(() => {
+    const delta = {
+      wsRequests: workerMetrics.wsRequests - lastReported.ws,
+      xhttpRequests: workerMetrics.xhttpRequests - lastReported.xhttp,
+      h2cRequests: workerMetrics.h2cRequests - lastReported.h2c,
+      h1Requests: workerMetrics.h1Requests - lastReported.h1,
+      circuitTrips: workerMetrics.circuitTrips - lastReported.trips
+    };
+    if (delta.wsRequests > 0 || delta.xhttpRequests > 0 || delta.h2cRequests > 0 || delta.h1Requests > 0 || delta.circuitTrips > 0) {
+      lastReported.ws = workerMetrics.wsRequests;
+      lastReported.xhttp = workerMetrics.xhttpRequests;
+      lastReported.h2c = workerMetrics.h2cRequests;
+      lastReported.h1 = workerMetrics.h1Requests;
+      lastReported.trips = workerMetrics.circuitTrips;
+      try {
+        process.send({ type: 'metrics_delta', delta });
+      } catch {}
+    }
+  }, 1000);
+
+  // 拦截 console 输出并同步给主进程日志池
+  const origLog = console.log;
+  const origError = console.error;
+  const origWarn = console.warn;
+  console.log = (...args) => {
+    origLog(...args);
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    try { process.send({ type: 'log', level: 'info', message: `[W${workerIdx}] ${msg}` }); } catch {}
+  };
+  console.error = (...args) => {
+    origError(...args);
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    try { process.send({ type: 'log', level: 'error', message: `[W${workerIdx}] ${msg}` }); } catch {}
+  };
+  console.warn = (...args) => {
+    origWarn(...args);
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    try { process.send({ type: 'log', level: 'warn', message: `[W${workerIdx}] ${msg}` }); } catch {}
+  };
+
+  const wsServer = createWsServer(workerMetrics, () => cachedCfAccounts);
+  const xhttpGateway = createXhttpGateway(workerMetrics, () => cachedCfAccounts);
+
+  wsServer.listen(currentConfig.httpPort, '0.0.0.0', () => {
+    xhttpGateway.listen(currentConfig.h2cPort, '0.0.0.0', () => {
+      console.log(`[Worker #${workerIdx} PID:${process.pid}] 🚀 代理服务已就绪并绑定多核监听 (WS: ${currentConfig.httpPort}, XHTTP: ${currentConfig.h2cPort})`);
     });
   });
-});
+
+} else {
+  // ---------------- 单进程降级模式 (CLUSTER_MODE=false) ----------------
+  const wsServer = createWsServer(metrics, () => cachedCfAccounts);
+  const xhttpGateway = createXhttpGateway(metrics, () => cachedCfAccounts);
+
+  wsServer.listen(currentConfig.httpPort, '0.0.0.0', () => {
+    xhttpGateway.listen(currentConfig.h2cPort, '0.0.0.0', () => {
+      webServer.listen(currentConfig.webPort, '0.0.0.0', () => {
+        console.log('='.repeat(60));
+        console.log(`🚀 EdgeTunnel 本地分流网关 (单进程兼容版) 全部启动！`);
+        console.log(`   🔌 WebSocket (HTTP/1.1) 监听端口: ${currentConfig.httpPort}`);
+        console.log(`   ⚡ XHTTP 双模监听端口:    ${currentConfig.h2cPort}`);
+        console.log(`   🖥️ Web UI 管理控制台:    http://0.0.0.0:${currentConfig.webPort}`);
+        console.log('='.repeat(60) + '\n');
+        startQuotaPatrol();
+        recordPreferActivity(currentConfig.defaultPrefer, '系统启动初始化');
+        setTimeout(() => getCfSubAccounts(false).catch(() => {}), 1500);
+        verifyTelegramConnectivity();
+      });
+    });
+  });
+}
 
 process.on('uncaughtException', (err) => {
   if (isBenignError(err)) return;
