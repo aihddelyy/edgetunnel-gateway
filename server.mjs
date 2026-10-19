@@ -50,7 +50,7 @@ const metrics = {
 const configuredWorkers = parseInt(process.env.CLUSTER_WORKERS || '0', 10);
 const cpuCount = Math.max(1, os.cpus()?.length || 1);
 const isClusterEnabled = process.env.CLUSTER_MODE !== 'false' && cpuCount > 1;
-const WORKER_COUNT = configuredWorkers > 0 ? configuredWorkers : Math.min(4, cpuCount);
+const WORKER_COUNT = configuredWorkers > 0 ? configuredWorkers : Math.min(8, cpuCount);
 
 export function broadcastConfigUpdate() {
   if (isClusterEnabled && cluster.isPrimary) {
