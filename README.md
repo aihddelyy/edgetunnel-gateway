@@ -1,4 +1,4 @@
-﻿# EdgeTunnel Gateway (edgetunnel-gateway) 本地自适应动态分流网关
+﻿# EdgeTunnel Gateway (edgetunnel-gateway)
 
 [![Docker](https://img.shields.io/badge/Docker-Node%2020--Alpine-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/_/node)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -6,163 +6,153 @@
 [![Architecture](https://img.shields.io/badge/Architecture-Modular%20ESM-orange.svg)]()
 [![Wiki](https://img.shields.io/badge/Wiki-Documentation-blueviolet.svg?logo=gitbook&logoColor=white)](https://github.com/aihddelyy/edgetunnel-gateway/wiki)
 
-专为 **Cloudflare Pages / Workers ([EdgeTunnel](https://github.com/cmliu/edgetunnel))** 打造的轻量级高性能局域网自适应负载均衡与智能分流网关。通过 Docker 部署在 NAS / 软路由 / 物理服务器上，赋予独立局域网 IP（Macvlan 模式），为内网全设备（软路由 Mihomo、PC v2rayN、手机等）提供高可用、多域名轮询、握手期透明故障转移、动态优选 IP 透传与多账户额度监控管理服务。
+面向 **Cloudflare Pages / Workers ([EdgeTunnel](https://github.com/cmliu/edgetunnel))** 隧道的局域网分流与负载均衡网关。通常通过 Docker（推荐 Macvlan 独立 IP 模式）部署在群晖 NAS、软路由或 Linux 服务器上，为内网设备（软路由 Mihomo、桌面 v2rayN、手机等）提供出站优选 IP 直连、多后端平权轮询、握手期透明故障转移、协议双模自适应以及 Cloudflare 账户用量监控。
 
-> 📖 **官方完整知识库与使用手册已上线**：关于详细网络规划、首包嗅探底层原理、多客户端订阅转换与疑难排障，欢迎查阅 **[GitHub 官方 Wiki 文档中心](https://github.com/aihddelyy/edgetunnel-gateway/wiki)**。
-
----
-
-## 🌟 核心特性
-
-- ⚡ **多协议独立端口负载均衡**
-  - **端口 `8787` (Pages/WebSocket)**：原生 HTTP/1.1 握手转发，实现 101 Switching Protocols 全双工管道代理。
-  - **端口 `8788` (Worker/XHTTP)**：**首包嗅探双模自适应**。基于纯净 TCP 环回管道，无缝自动兼容 **Mihomo 原生 H2C (明文 HTTP/2)** 与 **v2rayN (明文 HTTP/1.1 POST 流式)**，单端口无需切换。
-  - **端口 `8789` (Web UI & REST API)**：现代化暗色/亮色管理控制台，全域可视化运维。
-- 🔄 **握手期透明无感故障转移 (Transparent Failover Retry)**
-  - 采用**首包 128KB 动态数据暂存技术**，在握手期遇到 Cloudflare 边缘阻断错误（`1101`、`502`、`429`、`403`、`521`）或网络中断时，网关自动在后台静默重试备用健康节点，对客户端完全透明无感知，杜绝连接闪断。
-  - 🚀 **HTTP/2 弹性多连接池 (Elastic Multi-Session Pool)**：每个目标后端按需维持最多 **4 条独立 H2 并发连接**。当单连接并发流数超过阈值（>15 Streams）时自动弹性开辟新连接分流，彻底杜绝高并发多线程大流量下载时的 **TCP 队头阻塞**，闲置超时自动优雅缩容。
-- 🎯 **平权均衡轮询与额度均摊调度 (Fair Round-Robin Balancing)**
-  - **遵循物理网络本质**：出站直连同一个优选 IP 时，所有 Worker 后端抵达 Cloudflare 边缘机房的物理网络 RTT 完全一致；
-  - **彻底摒弃虚假加权**：严格采用**雨露均沾平权轮询**，确保多子账户每日的免费配额（每个账户 10 万次/天）能够得到绝对均匀的分摊消耗，绝不因单节点被赋予过高权重而导致配额早夭被刷爆；
-  - **配额超限自动避让**：配合 Cloudflare 官方 API 巡检，当子账户额度达到自定义阈值（默认 95%）时自动暂停调度该节点，流量平滑转移至未超限账户。
-- 🌐 **优选 IP 动态透传、全域感知与实时物理测速**
-  - 配合 Sub-Store 脚本自动在请求路径中携带 `prefer=优选IP:端口`；
-  - 网关在握手时自动解析并直连该最优优选 IP，同时清洗请求路径，保证远端 Cloudflare 收到的 Path 纯净合法；
-  - **活跃优选节点感知**：网关自动收集客户端使用的所有优选 IP/域名，实时展示物理 RTT 往返延迟、请求频次与来源设备，支持一键批量测速、单节点测试与一键设为全局默认。
-- ☁️ **Cloudflare 多账户额度监控与后台静默联动**
-  - **双模式支持**：原生支持 **Cloudflare 官方 API 直连模式 (Direct)** 与 **[UsagePanel](https://github.com/cmliu/CF-Workers-UsagePanel) 镜像模式**；
-  - **每 5 分钟自动静默巡检**：后台定时向 Cloudflare 官方 API 拉取各子账户当日 Workers / Pages / KV / D1 / R2 实时用量；
-  - **监控中心毫秒级全自动联动**：监控中心卡片与 CF 额度深度打通，额度变动即时驱动卡片进度条更新，无需手动刷新页面。
-- 🛡️ **智能健康检查与自动容错熔断**
-  - 单节点连续遭遇 5 次明确阻断后自动隔离 **60 秒**，期间流量平滑切换至其余健康节点；
-  - 严格排除优选链路超时与客户端主动断连误判，杜绝误熔断；节点恢复后自动解封归队。
-- 📢 **Telegram Bot 智能精准告警**
-  - 支持 Telegram 消息推送，兼容直连与 **SOCKS5 / HTTP 代理通道**；
-  - 仅对 1101 致命异常与子账户额度超限推送告警，配备 **15 分钟防刷节流机制**，避免通知轰炸。
-- 🧠 **全方位内存治理与智能自动垃圾回收机制 (Memory Guard)**
-  - **首包暂存瞬时释放**：握手 200 OK 后立即清空 128KB 暂存 Buffer，长连接流零冗余驻留；
-  - **全链路背压流控 (Backpressure Flow Control)**：遵循 Node.js Stream 标准背压，大流量多并发传输时内核缓冲区饱水自动挂起输入流（`pause()`），排空自动恢复（`drain`），彻底杜绝内存队列堆积；
-  - **Socket 互锁销毁**：客户端异常断流秒级感知并清理远端及内部连接映射，杜绝僵死套接字与内核 Buffer 挂起；
-  - **智能内存守护巡检器**：后台定时巡检物理内存（默认 5 分钟），超过设定阈值（默认 150MB，可自由配置）自动执行全量深度清理与 **V8 原生垃圾回收 (`global.gc()`)**，物理内存长期稳定在 50~80MB；
-  - **控制台一键回收**：监控中心提供实时内存健康指示徽章与 **`[⚡ 立即回收]`** 按钮，核心配置提供独立调节面板。
-- 🖥️ **现代化模块化 Web 控制台**
-  - 选项卡导航栏具备**零位移吸顶常驻（Sticky Header）**特性，无论页面滚动多深，切换卡片纹丝不动；
-  - 监控中心卡片**实时呈现各后端节点成功率、额度消耗进度条与健康度**，全域状态一目了然；
-  - 单节点启停滑动开关（Switch Toggle）、页面级二次确认防误触弹窗；
-  - 实时 SSE (Server-Sent Events) 日志流，支持等级筛选、关键词搜索与自动滚屏；
-  - 核心配置热重载，并自带历史快照备份与一键回滚机制。
+> 详细配置手册、客户端规则转换与疑难排障，可参考 [Wiki 文档中心](https://github.com/aihddelyy/edgetunnel-gateway/wiki)。
 
 ---
 
-## 📐 架构与工作流
+## 功能特性
+
+- **多协议分流与双模自适应**
+  - **端口 `8787` (Pages / WebSocket)**：HTTP/1.1 握手转发，实现 101 Switching Protocols 全双工管道代理。
+  - **端口 `8788` (Worker / XHTTP)**：支持首包协议嗅探。通过底层流回放机制，单端口自适应兼容 **Mihomo 原生 H2C (明文 HTTP/2)** 与 **v2rayN (明文 HTTP/1.1 POST 流式)**，客户端无需切换不同端口。
+  - **端口 `8789` (Web UI & REST API)**：提供可视化管理面板，支持配置热更新与系统指标监控。
+- **握手期透明故障转移 (Failover)**
+  - 在握手初期（首包 128KB 以内）如果目标 Cloudflare 节点返回阻断或异常状态码（如 `1101`、`502`、`429`、`403`、`521`）或发生网络中断，网关自动在后台重试备用后端并重放首包数据，客户端连接不会直接断开。
+  - **HTTP/2 会话池**：每个出站后端维护独立的 H2 连接池，支持并发多路复用与闲置连接超时回收，减少频繁 TLS 握手开销。
+- **平权轮询与额度避让**
+  - **平权轮询 (Round-Robin)**：出站连接至同一物理优选节点时，各 Worker 到边缘机房的网络延迟一致，采用平权轮询调度可使各子账户的免费额度（通常 10 万次/天）均匀消耗。
+  - **配额超限自动避让**：配合 Cloudflare API 巡检，当某个子账户的使用率达到设定阈值（默认 95%）时，自动暂停向该账户绑定的节点分发流量；全部超限时自动降级兜底运行，避免断网。
+- **优选 IP 透传与清洗**
+  - 支持客户端在请求路径末尾携带 `prefer=优选IP:端口` 参数（可通过 Sub-Store 脚本自动注入）。
+  - 网关在握手阶段提取该参数并直接与目标优选 IP 建立出站连接，同时自动清洗请求路径，保证发往 Cloudflare 端的 Path 规范有效。
+  - 自动记录各活跃优选 IP 的延迟与请求次数，支持手动测速和一键设置为全局默认服务器。
+- **Cloudflare 账户用量监控**
+  - 支持 **Cloudflare 官方 API 直连模式 (Direct)** 与 **[UsagePanel](https://github.com/cmliu/CF-Workers-UsagePanel) 镜像模式**。
+  - 后台定时（默认每 5 分钟）静默拉取子账户的 Workers / Pages / KV / D1 / R2 实时用量并在控制台同步显示。
+- **健康检查与熔断隔离**
+  - 后端连续遭遇 5 次业务阻断错误后自动隔离 60 秒，隔离期满后重新加入可用池。
+  - 优选链路丢包或超时归类为网络层异常，不计入 Worker 业务失败，避免误熔断。
+- **Telegram 告警通知**
+  - 支持节点持续熔断或账户额度超限时推送通知，兼容直连与 SOCKS5 / HTTP 代理通道，内置 15 分钟频控防刷机制。
+- **内存控制机制 (Memory Guard)**
+  - **握手即清**：首包暂存 Buffer 在远端返回 200 OK 后立即释放，不在长连接中驻留。
+  - **背压流控 (Backpressure)**：遵循标准 Stream 流控，远端写缓冲区满时自动暂停读取客户端输入（`pause`），缓冲区排空后恢复（`drain`），防止内存堆积。
+  - **连接互锁释放**：任意一端非正常断开时，联动销毁对端 Socket 并清理映射。
+  - **后台内存巡检**：运行参数支持 `--expose-gc`，后台定时巡检物理内存（默认 5 分钟），超过设定阈值（默认 150MB）时触发深度清理与垃圾回收。
+- **Web 管理控制台**
+  - 状态监控：展示各后端节点的转发成功率、额度消耗进度与健康状态。
+  - 运维操作：单节点启停开关、优选 IP 列表测速、日志实时查看（SSE）、配置热重载与配置历史快照回滚。
+
+---
+
+## 架构与工作流
 
 ```mermaid
 graph TD
-    Client1["Mihomo 客户端<br/>(原生 H2C / WS, tls: false)"] -->|局域网请求 10.10.10.35| GW["EdgeTunnel Gateway 网关<br/>(Docker Macvlan)"]
+    Client1["Mihomo 客户端<br/>(H2C / WS, tls: false)"] -->|局域网请求 10.10.10.35| GW["EdgeTunnel Gateway<br/>(Docker Macvlan)"]
     Client2["v2rayN 客户端<br/>(HTTP/1.1 POST, tls: false)"] -->|局域网请求 10.10.10.35| GW
     Browser["管理员浏览器<br/>(Web UI 控制台)"] -->|访问 :8789| GW
 
     subgraph 网关内部处理流程
         GW --> Sniff{"端口流量监听"}
-        Sniff -->|:8787 WS 协议| H1Server["HTTP/1.1 WS 负载均衡器"]
-        Sniff -->|:8788 XHTTP 协议| LoopbackMux["首包嗅探双模分发器"]
-        Sniff -->|:8789 Web 控制台| WebUI["Web 控制台 & REST API<br/>(静态托管 + SSE日志)"]
+        Sniff -->|:8787 WS 协议| H1Server["HTTP/1.1 WS 代理"]
+        Sniff -->|:8788 XHTTP 协议| LoopbackMux["首包嗅探双模分发"]
+        Sniff -->|:8789 Web 控制台| WebUI["Web 控制台 & REST API"]
         
-        LoopbackMux -->|检测到 PRI * HTTP/2.0| IsolatedH2["内置 H2C 解析服务器"]
-        LoopbackMux -->|检测到 POST HTTP/1.1| IsolatedH1["内置 H1 解析服务器"]
+        LoopbackMux -->|检测到 PRI * HTTP/2.0| IsolatedH2["H2C 协议处理"]
+        LoopbackMux -->|检测到 POST HTTP/1.1| IsolatedH1["HTTP/1.1 POST 处理"]
         
-        H1Server --> Extract["提取 prefer= 优选 IP<br/>清洗出站 Path"]
+        H1Server --> Extract["提取 prefer 优选 IP<br/>清洗出站 Path"]
         IsolatedH2 --> Extract
         IsolatedH1 --> Extract
         
-        Extract --> BufferCheck["首包 128KB 缓冲<br/>+ H2 弹性多连接池"]
+        Extract --> BufferCheck["首包 128KB 暂存<br/>+ H2 会话池"]
         BufferCheck --> HealthCheck{"健康检测 & 熔断器"}
-        HealthCheck -->|阻断/中断| Failover["透明故障转移重试 (最多2次)<br/>无感切换备用后端"]
-        HealthCheck -->|正常| LB["平权均衡轮询出站<br/>多账户额度均匀平摊"]
+        HealthCheck -->|业务阻断| Failover["故障重试 (最多2次)<br/>切换备用后端"]
+        HealthCheck -->|状态正常| LB["平权轮询出站<br/>按额度避让调度"]
     end
 
-    LB -->|"直连优选IP + 真实SNI/Host + TLS"| CF_Pages["Cloudflare Pages 后端池<br/>(pages-*.example.com)"]
-    LB -->|"直连优选IP + 真实SNI/Host + TLS (H2)"| CF_Worker["Cloudflare Worker 后端池<br/>(worker-*.example.com)"]
-    WebUI -->|每 5 分钟后台静默轮询| CF_API["Cloudflare 官方 GraphQL API<br/>(多子账户配额拉取)"]
-    HealthCheck -.->|触发严重阻断| TG["Telegram 告警推送<br/>(支持 SOCKS5 代理)"]
+    LB -->|"直连优选IP + 真实SNI/Host + TLS"| CF_Pages["Cloudflare Pages 节点池"]
+    LB -->|"直连优选IP + 真实SNI/Host + TLS (H2)"| CF_Worker["Cloudflare Worker 节点池"]
+    WebUI -->|定时后台巡检| CF_API["Cloudflare GraphQL API<br/>(配额数据)"]
+    HealthCheck -.->|触发熔断告警| TG["Telegram 推送<br/>(可选 SOCKS5 代理)"]
 ```
 
 ---
 
-## 📁 目录与工程结构
+## 目录结构
 
-本项目采用**纯原生 ES Modules (ESM) 与纯原生前端资源**架构，零编译打包依赖，改动直接生效：
+项目采用原生 ES Modules (ESM) 与原生前端静态文件结构：
 
 ```text
 edgetunnel-gateway/
-├── server.mjs                  # 核心入口：服务监听装配 (8787/8788/8789) 与 REST API 路由
-├── lib/                        # 原生后端业务模块
-│   ├── config.mjs              # 配置加载、持久化、历史备份与回滚
-│   ├── auth.mjs                # 管理员密码加盐哈希与 Bearer Token 会话管理
-│   ├── telegram.mjs            # Telegram 消息推送、SOCKS5 代理与自检
-│   ├── health.mjs              # 动态熔断隔离 (5次容错)、平权轮询与额度均摊调度
-│   ├── prefer.mjs              # 活跃优选节点感知、TCP 延迟测速与清理
-│   ├── traffic.mjs             # 流量历史采样与文件持久化
-│   ├── cf-quota.mjs            # Cloudflare 直连API轮询与 5 分钟静默巡检
-│   ├── memory.mjs              # 内存监控指标采集、深度缓存清理、V8 原生 GC 触发与守护巡检
-│   ├── utils.mjs               # 公共工具函数 (安全URL处理、良性错误过滤等)
-│   ├── proxy-ws.mjs            # WebSocket (8787) Pages 核心转发代理
-│   └── proxy-xhttp.mjs         # XHTTP (8788) Worker 双模网关、H2 弹性多连接池与透明故障转移
-├── public/                     # 原生前端静态资源
-│   ├── index.html              # 纯骨架 DOM 结构 (吸顶导航栏、各选项卡容器)
-│   ├── css/
-│   │   └── style.css           # 样式表 (暗黑/浅色主题、Switch 开关、模态弹窗)
-│   └── js/
-│       └── app.js              # 控制台脚本 (监控中心、CF额度面板、配置管理、SSE)
-├── substore-operator.js        # Sub-Store 订阅节点清洗转换脚本
-├── docker-compose.yml          # Docker Compose 容器编排文件
-├── config.json                 # 本地运行时持久化配置
-└── README.md                   # 项目工程文档
+├── server.mjs                  # 入口文件：服务监听装配与 REST API 路由
+├── lib/                        # 后端模块
+│   ├── config.mjs              # 配置读写、备份与回滚
+│   ├── auth.mjs                # 管理员认证与 Session 管理
+│   ├── telegram.mjs            # Telegram 消息推送与网络自检
+│   ├── health.mjs              # 熔断器、平权轮询与额度调度
+│   ├── prefer.mjs              # 活跃优选节点感知与延迟测试
+│   ├── traffic.mjs             # 流量历史数据采样与存储
+│   ├── cf-quota.mjs            # Cloudflare 配额 API 定时轮询
+│   ├── memory.mjs              # 内存监控、GC 与连接清理
+│   ├── utils.mjs               # 工具函数
+│   ├── proxy-ws.mjs            # WebSocket (8787) Pages 代理
+│   └── proxy-xhttp.mjs         # XHTTP (8788) Worker 双模网关与连接池
+├── public/                     # 前端静态资源
+│   ├── index.html              # 页面结构
+│   ├── css/style.css           # 页面样式
+│   └── js/app.js               # 控制台逻辑
+├── substore-operator.js        # Sub-Store 订阅转换脚本
+├── docker-compose.yml          # Docker Compose 编排文件
+├── config.json                 # 本地运行时配置文件
+└── README.md                   # 说明文档
 ```
 
 ---
 
-## 🔌 端口规划一览
+## 端口规划
 
 | 端口 | 协议 / 模式 | 用途说明 |
 | :---: | :---: | :--- |
-| **`8787`** | HTTP/1.1 (WS Upgrade) | **Cloudflare Pages (WebSocket)** 专属负载均衡端口 |
-| **`8788`** | TCP 首包自适应 (H2C / H1.1) | **Cloudflare Worker (XHTTP)** 专属双模兼容负载均衡端口 |
-| **`8789`** | HTTP / REST API | **Web UI 管理控制台** 与健康监控面板 (带密码鉴权) |
+| **`8787`** | HTTP/1.1 (WS Upgrade) | Cloudflare Pages (WebSocket) 代理端口 |
+| **`8788`** | TCP 首包嗅探 (H2C / H1.1) | Cloudflare Worker (XHTTP) 双模自适应代理端口 |
+| **`8789`** | HTTP / REST API | Web UI 管理控制台与监控面板 |
 
 ---
 
-## ⚙️ 环境变量配置说明 (`docker-compose.yml`)
+## 环境变量说明 (`docker-compose.yml`)
 
 | 环境变量 | 默认值 / 示例 | 说明 |
 | :--- | :--- | :--- |
-| `PORT` | `8787` | Pages / WebSocket 负载均衡监听端口 |
-| `H2C_PORT` | `8788` | Worker / XHTTP 自适应双模监听端口 |
-| `WEB_PORT` | `8789` | Web UI 控制台访问端口 |
-| `PREFERRED_SERVER` | `cf.example.com` | 默认兜底优选服务器（节点未携带 `prefer` 时使用） |
-| `PAGES_BACKENDS` | `p1.example.com,p2.example.com` | 真实 Pages 后端域名列表（英文逗号分隔） |
-| `WORKER_BACKENDS` | `w1.example.com,w2.example.com` | 真实 Worker 后端域名列表（英文逗号分隔） |
-| `TRAFFIC_SAMPLE_MINUTES` | `5` | 流量走势图采样频率（单位：分钟） |
-| `CF_PANEL_URL` | `https://usagepanel.pages.dev` | UsagePanel 原版后台镜像地址 |
-| `TG_BOT_TOKEN` | `123456789:ABC...` | Telegram 机器人 Token（为空则不推送） |
-| `TG_CHAT_ID` | `-100123456789` | 接收告警的 Telegram Chat ID |
-| `TG_PROXY` | `socks5://10.10.10.1:7890` | Telegram 代理通道（支持 SOCKS5 / HTTP 格式） |
-| `MEMORY_THRESHOLD_MB` | `150` | 内存自动回收触发阈值（单位：MB，默认 150） |
-| `MEMORY_INTERVAL_MINUTES` | `5` | 后台内存健康巡检频率（单位：分钟，默认 5） |
+| `PORT` | `8787` | Pages / WebSocket 监听端口 |
+| `H2C_PORT` | `8788` | Worker / XHTTP 双模监听端口 |
+| `WEB_PORT` | `8789` | Web UI 访问端口 |
+| `PREFERRED_SERVER` | `cf.example.com` | 默认兜底优选服务器（客户端未传 `prefer` 时使用） |
+| `PAGES_BACKENDS` | `p1.example.com,p2.example.com` | Pages 后端域名列表（英文逗号分隔） |
+| `WORKER_BACKENDS` | `w1.example.com,w2.example.com` | Worker 后端域名列表（英文逗号分隔） |
+| `TRAFFIC_SAMPLE_MINUTES` | `5` | 流量走势采样间隔（单位：分钟） |
+| `CF_PANEL_URL` | `https://usagepanel.pages.dev` | UsagePanel 镜像地址 |
+| `TG_BOT_TOKEN` | `123456789:ABC...` | Telegram Bot Token（留空不推送） |
+| `TG_CHAT_ID` | `-100123456789` | Telegram Chat ID |
+| `TG_PROXY` | `socks5://10.10.10.1:7890` | Telegram 代理（支持 SOCKS5 / HTTP） |
+| `MEMORY_THRESHOLD_MB` | `150` | 内存自动回收阈值（单位：MB） |
+| `MEMORY_INTERVAL_MINUTES` | `5` | 内存巡检频率（单位：分钟） |
 
-> **提示**：除了环境变量外，网关支持通过 Web UI 界面在线修改任何配置，并持久化保存至 `config.json`，支持自动历史快照备份与随时一键回滚。
+> **说明**：配置除环境变量外，也可直接在 Web 控制台修改并保存至 `config.json`，每次修改会自动备份旧配置。
 
 ---
 
-## 🚀 部署指南 (群晖 NAS / Linux)
+## 部署说明 (群晖 NAS / Linux)
 
-### 1. 准备目录与配置文件
-以群晖 NAS 为例：
+### 1. 准备目录
 ```bash
 mkdir -p /volume2/docker/edgetunnel-lb
 cd /volume2/docker/edgetunnel-lb
 ```
-将项目文件同步到该目录下，并根据实际网络规划配置 `docker-compose.yml`（推荐使用 `macvlan` 模式分配独立 IP 如 `10.10.10.35`）。
+将项目源码放入该目录。推荐使用 `macvlan` 网络赋予容器独立局域网 IP（例如 `10.10.10.35`），避免端口冲突并便于局域网设备统一访问。
 
 ### 2. 启动容器
 ```bash
@@ -173,52 +163,52 @@ docker compose up -d
 ```bash
 docker compose logs -f
 ```
-当看到类似以下日志时，代表网关已成功启动并就绪：
+正常启动日志输出示例：
 ```text
 ============================================================
-🚀 EdgeTunnel 本地自适应分流网关已全部启动！(模块化架构版)
-   🔌 WebSocket (HTTP/1.1) 监听端口: 8787
-      • Pages 后端池: p1.example.com, p2.example.com
-   ⚡ XHTTP 双模监听端口:    8788 (兼容 Mihomo H2 与 v2rayN H1)
-      • Worker 后端池: w1.example.com, w2.example.com
-   🌐 默认实际 Server:     cf.example.com
-   🖥️ Web UI 管理控制台:    http://0.0.0.0:8789
-   📢 Telegram 告警通知:   已启用 (SOCKS5/代理: socks5://10.10.10.1:7890)
+EdgeTunnel Gateway 已启动
+   WebSocket 监听端口: 8787
+      Pages 后端列表: p1.example.com, p2.example.com
+   XHTTP 监听端口:    8788 (支持 H2C 与 H1.1)
+      Worker 后端列表: w1.example.com, w2.example.com
+   默认服务器:        cf.example.com
+   Web 控制台:        http://0.0.0.0:8789
+   内存守护状态:      已启用 (阈值: 150MB, 巡检: 每 5 分钟)
 ============================================================
 ```
 
-### 4. 访问 Web 控制台
-浏览器访问：`http://<网关IP>:8789/`，初次访问将引导设置管理员密码，登录后即可体验完整的可视化运维功能。
+### 4. 初始化管理员密码
+访问 `http://<网关IP>:8789/`，首次打开会提示设置管理员账号与密码，提交后即可登录控制台。
 
 ---
 
-## 📱 客户端配置与 Sub-Store 脚本说明
+## 客户端配置与 Sub-Store 脚本
 
-### 1. Sub-Store 脚本配置
-本项目包含 `substore-operator.js` 脚本，用于对订阅节点进行全自动化重定向与参数清洗：
-1. 打开 Sub-Store Web 界面；
-2. 在目标订阅或组合订阅的 **Script Operator（脚本操作）** 中填入 `substore-operator.js`；
-3. 该脚本自动完成以下处理：
-   - 提取节点原有的优选服务器（域名或 IP+端口），转换为 `prefer=ip:port` 追加在 URL 路径末尾；
-   - 将节点服务器地址指向内网网关 **`10.10.10.35`**；
-   - 自动分流端口：WS 节点分流至 **`8787`**，XHTTP 节点分流至 **`8788`**；
-   - 将节点 `tls` 设置为 `false`，并自动清洗路径尾部多余斜杠，完整保留原有全部伪装与认证参数。
+### 1. Sub-Store 转换脚本
+使用仓库内的 `substore-operator.js` 对订阅节点进行自动转换：
+1. 打开 Sub-Store 界面；
+2. 在目标订阅的 **Script Operator（脚本操作）** 中引入 `substore-operator.js`；
+3. 脚本执行以下处理：
+   - 提取节点原有的优选服务器地址与端口，转为 `prefer=ip:port` 拼接到 Path 末尾；
+   - 将节点服务器地址重定向至网关局域网 IP（如 `10.10.10.35`）；
+   - 根据网络类型分流端口：WS 分流至 `8787`，XHTTP 分流至 `8788`；
+   - 将节点 `tls` 设置为 `false`，保留原有的 Host、UUID 等认证参数。
 
-### 2. Mihomo / Clash Meta 节点示例
+### 2. 客户端节点配置示例 (Mihomo)
 
 #### XHTTP 节点 (端口 8788)
 ```yaml
 proxies:
-  - name: "[CF] 优选节点-XHTTP"
+  - name: "[CF] 节点-XHTTP"
     type: vless
     server: 10.10.10.35
     port: 8788
     uuid: 00000000-0000-0000-0000-000000000000
     udp: true
-    tls: false              # 客户端直连网关，关闭 TLS
+    tls: false              # 直连本地网关，关闭 TLS
     network: xhttp
     xhttp-opts:
-      host: lb.example.com  # 伪装域名完整保留
+      host: lb.example.com
       path: /drama/html/album/proxyip=proxyip.example.com?ed=2560&prefer=cf.example.com
       mode: stream-one
       x-padding-obfs-mode: true
@@ -232,13 +222,13 @@ proxies:
 #### WebSocket 节点 (端口 8787)
 ```yaml
 proxies:
-  - name: "[CF] 优选节点-WS"
+  - name: "[CF] 节点-WS"
     type: vless
     server: 10.10.10.35
     port: 8787
     uuid: 00000000-0000-0000-0000-000000000000
     udp: true
-    tls: false              # 客户端直连网关，关闭 TLS
+    tls: false              # 直连本地网关，关闭 TLS
     network: ws
     ws-opts:
       path: /redirect.html/about/library/proxyip=104.16.1.1:443?prefer=104.16.1.1:443
@@ -249,43 +239,36 @@ proxies:
 
 ---
 
-## ❓ 常见问题 (FAQ)
+## 常见问题 (FAQ)
 
-### Q1: 节点配置里为什么必须设置 `tls: false`？
-> **答**：客户端连接的是你局域网内的这台网关（`10.10.10.35`），内网无需也不能进行公网 TLS 证书握手。真正的 TLS 加密握手发生在**网关出站连接 Cloudflare 边缘节点**时，由网关全权负责以真实的 Worker/Pages 域名建立最高强度的 TLS/H2 加密传输。
+### Q1: 客户端配置中为什么必须将 TLS 设为 `false`？
+客户端直接连接的是局域网内的网关（如 `10.10.10.35`），内网环境无法也不需要进行公网证书握手。真正的 TLS 加密建立在**网关到 Cloudflare 边缘服务器的出站链路**上，由网关携带真实的后端域名（SNI 与 Host）建立 TLS 1.3 / H2 加密。
 
-### Q2: 遇到节点阻断时，客户端会报错断线吗？
-> **答**：不会。网关实现了**首包 128KB 内存缓冲机制**。在握手初期如果目标后端返回了 `1101`、`502`、`429`、`521` 等阻断状态码，网关会自动在后台重试切换至备用 Worker/Pages 节点并重放首包数据，整个过程对客户端完全无感，无需客户端重新发起连接。
+### Q2: 遇到节点被 Cloudflare 阻断时，客户端会断连吗？
+不会。网关内置首包 128KB 内存缓冲机制。在握手阶段，若远端返回 `1101`、`502`、`429`、`521` 等业务阻断状态码，网关会在后台切换至备用 Worker/Pages 节点并重放首包，过程对客户端透明。
 
-### Q3: 为什么监控中心的 Cloudflare 额度会自动联动更新？
-> **答**：网关后台运行着每 5 分钟周期的静默巡检任务，全自动轮询 Cloudflare 官方 API 并更新本地缓存。监控中心每 3 秒刷新网关状态时，会自动获取最新额度数据，无需手动进入额度面板即可实时联动呈现。
+### Q3: 为什么 v2rayN 与 Mihomo 可以共用 8788 端口？
+Xray-core (v2rayN) 在未开启 TLS 时使用 HTTP/1.1 POST 进行流式传输，而 Mihomo 在明文模式下发送 RFC 7540 标准的 H2C 握手前言（`PRI * HTTP/2.0...`）。网关在端口 `8788` 入口进行首包字节匹配，分别转交给内置的 H2C 或 HTTP/1.1 解析器，无需分设不同端口。
 
-### Q4: 为什么 v2rayN 和 Mihomo 可以共用 8788 同一个端口？
-> **答**：Xray-core 在 `security: none` 时会将 XHTTP 退化为标准明文 `HTTP/1.1 POST`，而 Mihomo 在 `tls: false` 时会发送符合 RFC 7540 标准的明文 H2C 握手魔数（`PRI * HTTP/2.0...`）。网关实现了首包字节嗅探，并在毫秒级内通过纯净 TCP 管道分别分流到专有的 H2C 引擎或 H1 引擎，互不干扰且无协议损耗。
+### Q4: Cloudflare 额度自动避让逻辑是怎样的？
+默认阈值为 95%。当某个子账户当天的请求数消耗达到阈值时，网关在调度时会自动将该账户绑定的节点移出可用池，优先使用其余未超限账户。若所有账户均达到阈值，网关会自动降级保留全部节点继续轮询，避免断网。该阈值可在控制台“核心配置”中调整（10% ~ 100%）。
 
-### Q5: Cloudflare 额度达到多少会自动暂停使用？可以在核心配置里自定义吗？
-> **答**：**默认阈值为 95%**。当某个后端关联绑定的 Cloudflare 子账户当日请求额度使用率达到或超过该阈值时，网关在动态调度轮询时会**自动暂停调度该节点（移出健康池）**，优先将流量引流至其他未超限的子账户后端；若全部节点均超过该阈值，网关会自动降级兜底保留所有节点，防止断网。
-> 
-> 现在可以在 Web 控制台的 **【⚙️ 核心配置】** 选项卡中自由调整该设置项（**Cloudflare 额度自动避让阈值**，支持 10% ~ 100%，步长 1%），修改后即时热生效并自动持久化。
-
-### Q6: 为什么网关长期运行或跑大流量下载后，内存不会无限制飙升？
-> **答**：网关内置了一整套体系化的 **Memory Guard 内存治理与自动回收机制**：
-> 1. **握手即清**：首包 128KB 动态数据暂存在远端响应 200 OK 后立刻清空释放，绝不随长连接长期驻留；
-> 2. **背压流控**：在数据流转发中严格执行 Node.js 背压规范，客户端极速上传时自动挂起输入流，待缓冲区排空后再恢复，杜绝内部 Buffer 堆积；
-> 3. **僵尸 Socket 互锁销毁**：任意一端非优雅断开时，对端连接与内部映射均在毫秒级彻底释放；
-> 4. **后台静默巡检与原生 V8 GC**：启动命令中注入 `--expose-gc` 参数，后台默认每 5 分钟巡检一次，超过安全阈值（默认 150MB）时自动触发深度清理与原生双重垃圾回收，常驻物理内存稳定维持在 50~80MB 极佳低位。此外，在 Web 控制台随时可点击 **【⚡ 立即回收】** 按钮手动触发。
+### Q5: 大流量下载或长期运行下，网关内存表现如何？
+网关采用以下机制控制内存开销：
+1. **握手即释放**：首包 128KB 暂存在收到远端 200 OK 后立即清空，不驻留内存；
+2. **背压流控**：严格按照 Node.js Stream 规范，写入缓冲区满时自动挂起输入流，排空后恢复；
+3. **连接联动清理**：客户端或服务端任一端断开时，联动销毁对端 Socket 并清理内部状态；
+4. **定时 GC 巡检**：容器启动带 `--expose-gc` 参数时，后台每 5 分钟巡检一次，超过安全阈值（默认 150MB）时自动触发全局清理与 V8 垃圾回收，常驻内存通常维持在 50~80MB。
 
 ---
 
-## 🙏 鸣谢与相关项目 (Acknowledgements)
+## 鸣谢
 
-本项目在设计与实现过程中，参考并深度联动了以下优秀的开源项目，特此鸣谢：
-
-- **[cmliu/edgetunnel](https://github.com/cmliu/edgetunnel)**：基于 Cloudflare Workers / Pages 的高性能边缘网络隧道服务，为本项目提供出站后端协议生态与核心支持。
-- **[cmliu/CF-Workers-UsagePanel](https://github.com/cmliu/CF-Workers-UsagePanel)**：极具创意的 Cloudflare 多账户额度监控与统计面板，为本项目的子账户额度巡检、反代镜像联动与配额自动避让机制提供了关键灵感与支持。
+- **[cmliu/edgetunnel](https://github.com/cmliu/edgetunnel)**：提供 Cloudflare Workers / Pages 边缘隧道核心逻辑。
+- **[cmliu/CF-Workers-UsagePanel](https://github.com/cmliu/CF-Workers-UsagePanel)**：提供 Cloudflare 多账户配额展示面板支持。
 
 ---
 
-## 📜 许可证
+## 许可证
 
-本项目基于 [MIT 许可证](LICENSE) 开源发布。
+本项目基于 [MIT 许可证](LICENSE) 开源。

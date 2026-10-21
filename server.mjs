@@ -20,8 +20,8 @@ import {
 
 import { authSessions, hashPassword, checkAuth, createSession } from './lib/auth.mjs';
 import { sendTelegramRequest, verifyTelegramConnectivity } from './lib/telegram.mjs';
-import { backendHealth, backendStats, resetAllCircuit } from './lib/health.mjs';
-import { recordPreferActivity, getPreferNodesList, pingPreferTarget, normalizePreferTarget, preferNodes } from './lib/prefer.mjs';
+import { backendHealth, backendStats, resetAllCircuit, getBackendStatsDelta, mergeBackendStatsDelta } from './lib/health.mjs';
+import { recordPreferActivity, getPreferNodesList, pingPreferTarget, normalizePreferTarget, preferNodes, getPreferNodesDelta, mergePreferNodesDelta } from './lib/prefer.mjs';
 import { trafficHistory, initTrafficBaseline, startTrafficSampler } from './lib/traffic.mjs';
 import { cachedCfAccounts, lastCfAccountsFetch, startQuotaPatrol, getCfSubAccounts, getCfDirectAccounts } from './lib/cf-quota.mjs';
 import { isBenignError } from './lib/utils.mjs';
@@ -52,24 +52,22 @@ const cpuCount = Math.max(1, os.cpus()?.length || 1);
 const isClusterEnabled = process.env.CLUSTER_MODE !== 'false' && cpuCount > 1;
 const WORKER_COUNT = configuredWorkers > 0 ? configuredWorkers : cpuCount; // 全核爆发：自动派生全部可用物理核心并发处理
 
-export function broadcastConfigUpdate() {
+export function broadcastToWorkers(msg) {
   if (isClusterEnabled && cluster.isPrimary) {
     for (const id in cluster.workers) {
       try {
-        cluster.workers[id]?.send({ type: 'config_update', config: currentConfig });
+        cluster.workers[id]?.send(msg);
       } catch {}
     }
   }
 }
 
+export function broadcastConfigUpdate() {
+  broadcastToWorkers({ type: 'config_update', config: currentConfig });
+}
+
 export function broadcastCfAccounts(accounts) {
-  if (isClusterEnabled && cluster.isPrimary) {
-    for (const id in cluster.workers) {
-      try {
-        cluster.workers[id]?.send({ type: 'cf_accounts_update', accounts });
-      } catch {}
-    }
-  }
+  broadcastToWorkers({ type: 'cf_accounts_update', accounts });
 }
 
 const logEmitter = new EventEmitter();
@@ -825,6 +823,7 @@ const webServer = http.createServer(async (req, res) => {
   // 7. 重置熔断状态 API
   if (pathname === '/api/circuit/reset' && req.method === 'POST') {
     resetAllCircuit();
+    broadcastToWorkers({ type: 'reset_all_circuit' });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, message: '所有后端熔断状态已重置' }));
     return;
@@ -911,14 +910,49 @@ if (isClusterEnabled && cluster.isPrimary) {
 
     worker.on('message', (msg) => {
       if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'metrics_delta' && msg.delta) {
-        if (msg.delta.wsRequests) metrics.wsRequests += msg.delta.wsRequests;
-        if (msg.delta.xhttpRequests) metrics.xhttpRequests += msg.delta.xhttpRequests;
-        if (msg.delta.h2cRequests) metrics.h2cRequests += msg.delta.h2cRequests;
-        if (msg.delta.h1Requests) metrics.h1Requests += msg.delta.h1Requests;
-        if (msg.delta.circuitTrips) metrics.circuitTrips += msg.delta.circuitTrips;
+      if (msg.type === 'metrics_delta') {
+        if (msg.delta) {
+          if (msg.delta.wsRequests) metrics.wsRequests += msg.delta.wsRequests;
+          if (msg.delta.xhttpRequests) metrics.xhttpRequests += msg.delta.xhttpRequests;
+          if (msg.delta.h2cRequests) metrics.h2cRequests += msg.delta.h2cRequests;
+          if (msg.delta.h1Requests) metrics.h1Requests += msg.delta.h1Requests;
+          if (msg.delta.circuitTrips) metrics.circuitTrips += msg.delta.circuitTrips;
+        }
+        if (msg.backendStatsDelta) {
+          mergeBackendStatsDelta(msg.backendStatsDelta);
+        }
+        if (msg.preferNodesDelta) {
+          mergePreferNodesDelta(msg.preferNodesDelta);
+        }
+      } else if (msg.type === 'circuit_trip') {
+        backendHealth.set(msg.backend, {
+          isHealthy: false,
+          blockUntil: msg.blockUntil,
+          reason: msg.reason
+        });
+        broadcastToWorkers({
+          type: 'sync_backend_health',
+          backend: msg.backend,
+          state: backendHealth.get(msg.backend)
+        });
+      } else if (msg.type === 'circuit_recover') {
+        backendHealth.delete(msg.backend);
+        broadcastToWorkers({
+          type: 'sync_backend_health',
+          backend: msg.backend,
+          state: null
+        });
       } else if (msg.type === 'log') {
         appendLog(msg.level, msg.message);
+      }
+    });
+
+    worker.on('online', () => {
+      // 保证新启动的 Worker 获得主进程当前持有的熔断状态
+      for (const [backend, state] of backendHealth.entries()) {
+        try {
+          worker.send({ type: 'sync_backend_health', backend, state });
+        } catch {}
       }
     });
 
@@ -954,6 +988,14 @@ if (isClusterEnabled && cluster.isPrimary) {
       Object.assign(currentConfig, msg.config);
     } else if (msg.type === 'cf_accounts_update' && msg.accounts) {
       Object.assign(cachedCfAccounts, msg.accounts);
+    } else if (msg.type === 'sync_backend_health') {
+      if (msg.state) {
+        backendHealth.set(msg.backend, msg.state);
+      } else {
+        backendHealth.delete(msg.backend);
+      }
+    } else if (msg.type === 'reset_all_circuit') {
+      resetAllCircuit();
     }
   });
 
@@ -967,14 +1009,26 @@ if (isClusterEnabled && cluster.isPrimary) {
       h1Requests: workerMetrics.h1Requests - lastReported.h1,
       circuitTrips: workerMetrics.circuitTrips - lastReported.trips
     };
-    if (delta.wsRequests > 0 || delta.xhttpRequests > 0 || delta.h2cRequests > 0 || delta.h1Requests > 0 || delta.circuitTrips > 0) {
-      lastReported.ws = workerMetrics.wsRequests;
-      lastReported.xhttp = workerMetrics.xhttpRequests;
-      lastReported.h2c = workerMetrics.h2cRequests;
-      lastReported.h1 = workerMetrics.h1Requests;
-      lastReported.trips = workerMetrics.circuitTrips;
+    const bStatsDelta = getBackendStatsDelta();
+    const pNodesDelta = getPreferNodesDelta();
+
+    const hasMetrics = delta.wsRequests > 0 || delta.xhttpRequests > 0 || delta.h2cRequests > 0 || delta.h1Requests > 0 || delta.circuitTrips > 0;
+
+    if (hasMetrics || bStatsDelta || pNodesDelta) {
+      if (hasMetrics) {
+        lastReported.ws = workerMetrics.wsRequests;
+        lastReported.xhttp = workerMetrics.xhttpRequests;
+        lastReported.h2c = workerMetrics.h2cRequests;
+        lastReported.h1 = workerMetrics.h1Requests;
+        lastReported.trips = workerMetrics.circuitTrips;
+      }
       try {
-        process.send({ type: 'metrics_delta', delta });
+        process.send({
+          type: 'metrics_delta',
+          delta: hasMetrics ? delta : null,
+          backendStatsDelta: bStatsDelta,
+          preferNodesDelta: pNodesDelta
+        });
       } catch {}
     }
   }, 1000);
