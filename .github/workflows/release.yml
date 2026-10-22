@@ -4,12 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
+      - '*'
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号 (例如: 1.0.0 或 v1.0.0)'
+        description: '发布版本号 (例如: 1.0.1 或 v1.0.1)'
         required: true
-        default: '1.0.0'
+        default: '1.0.1'
 
 permissions:
   contents: write
