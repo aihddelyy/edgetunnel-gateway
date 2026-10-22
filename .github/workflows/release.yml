@@ -64,6 +64,41 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "title=EdgeTunnel LB Release $TAG" >> $GITHUB_OUTPUT
 
+      - name: Prepare Release Notes
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          CLEAN_VER="${TAG#v}"
+
+          echo "### 🚀 EdgeTunnel LB (Go 高性能单文件独立版) $TAG" > release_body.md
+          echo "" >> release_body.md
+          echo "纯 Go 单文件极速独立版，零外部依赖（无需 Node.js / Docker），内存占用仅 ~15MB，原生支持 OpenWrt 软路由与群晖 NAS。" >> release_body.md
+          echo "" >> release_body.md
+
+          if [ -f CHANGELOG.md ]; then
+            awk "/^## \\[v?$CLEAN_VER\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md > version_notes.md || true
+            if [ -s version_notes.md ]; then
+              echo "#### 📝 本次更新内容" >> release_body.md
+              cat version_notes.md >> release_body.md
+              echo "" >> release_body.md
+            fi
+          fi
+
+          cat << 'EOF' >> release_body.md
+          #### 📦 发布文件
+          - `edgetunnel-lb-linux-amd64`：适用于 x86 软路由、群晖 NAS、常规 VPS/服务器
+          - `edgetunnel-lb-linux-arm64`：适用于 ARM 架构软路由（NanoPi R4S/R5S、斐讯 N1、树莓派等）
+          - `*.tar.gz`：包含二进制与配置文件模板的压缩包
+          - `sha256sums.txt`：文件 SHA256 完整性校验值
+
+          #### 快速运行说明
+          ```bash
+          # 下载并赋权
+          chmod +x edgetunnel-lb-linux-amd64
+          # 配合 config.json 后台运行
+          nohup ./edgetunnel-lb-linux-amd64 -config config.json > app.log 2>&1 &
+          ```
+          EOF
+
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -72,24 +107,7 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          body: |
-            ### 🚀 EdgeTunnel LB (Go 高性能单文件独立版) ${{ steps.vars.outputs.tag }}
-
-            纯 Go 单文件极速独立版，零外部依赖（无需 Node.js / Docker），内存占用仅 ~15MB，原生支持 OpenWrt 软路由与群晖 NAS。
-
-            #### 📦 发布文件
-            - `edgetunnel-lb-linux-amd64`：适用于 x86 软路由、群晖 NAS、常规 VPS/服务器
-            - `edgetunnel-lb-linux-arm64`：适用于 ARM 架构软路由（NanoPi R4S/R5S、斐讯 N1、树莓派等）
-            - `*.tar.gz`：包含二进制与配置文件模板的压缩包
-            - `sha256sums.txt`：文件 SHA256 完整性校验值
-
-            #### 快速运行说明
-            ```bash
-            # 下载并赋权
-            chmod +x edgetunnel-lb-linux-amd64
-            # 配合 config.json 后台运行
-            nohup ./edgetunnel-lb-linux-amd64 -config config.json > app.log 2>&1 &
-            ```
+          body_path: release_body.md
           files: |
             edgetunnel-lb-linux-amd64
             edgetunnel-lb-linux-arm64
