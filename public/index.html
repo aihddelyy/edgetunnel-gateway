@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeTunnel 负载均衡网关 - 控制台</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="EdgeTunnel">
+  <meta name="theme-color" content="#0b0f19">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=20261014_1">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>⚡ EdgeTunnel 负载均衡网关</span>
+      <span class="brand-badge">v2.0 Web Console</span>
+    </div>
+    <div class="header-actions">
+      <div class="status-pill" title="网关服务正常运行中"><span class="dot"></span><span class="status-text">服务就绪</span></div>
+            <button class="btn btn-outline btn-sm" onclick="toggleTheme()" id="theme-toggle-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;" title="切换至明亮浅色模式">
+        <svg id="theme-sun-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <svg id="theme-moon-icon" style="display:none;" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <span id="theme-btn-text">浅色模式</span>
+      </button>
+      <button class="btn btn-outline btn-sm admin-btn" id="btn-header-reset" onclick="triggerResetCircuit()">🛡️ <span class="btn-text-full">重置熔断</span><span class="btn-text-short">重置</span></button>
+      <button class="btn btn-danger btn-sm admin-btn" id="btn-header-restart" onclick="triggerRestart()">🔄 <span class="btn-text-full">重启网关</span><span class="btn-text-short">重启</span></button>
+      <button class="btn btn-outline btn-sm" onclick="handleAuthAction()" id="auth-action-btn" title="管理员登录状态">🚪 退出登录</button>
+    </div>
+  </header>
+
+  <!-- 顶部独立常驻吸顶选项卡栏 (零位移、零浮动、纹丝不动) -->
+  <div class="nav-tabs-wrapper">
+    <div class="nav-tabs-container">
+      <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('dashboard')">📊 监控中心</button>
+        <button class="tab-btn admin-tab" onclick="switchTab('cfusage')"><svg viewBox="0 0 24 24" width="16" height="16" fill="#f59e0b" style="vertical-align: -2px; margin-right: 4px; display: inline-block;"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>CF 额度面板</button>
+        <button class="tab-btn admin-tab" onclick="switchTab('settings')">⚙️ 核心配置</button>
+        <button class="tab-btn admin-tab" onclick="switchTab('telegram')">🔔 Telegram 配置</button>
+        <button class="tab-btn admin-tab" onclick="switchTab('logs')">📜 实时日志</button>
+        <button class="tab-btn admin-tab" onclick="switchTab('clients')">📱 客户端配置</button>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <!-- TAB 1: 监控中心 -->
+    <div id="tab-dashboard" class="tab-pane active">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-muted);">
+          <span>网关流量指标与后端实时探活</span>
+          <span style="font-size: 0.75rem; background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); padding: 0.15rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" id="cf-patrol-status-pill" title="后台每 5 分钟自动静默拉取 Cloudflare 最新额度，与监控中心卡片实时同步">☁️ 额度更新...</span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="manualRefreshDashboard()" id="dash-refresh-btn" title="立刻刷新数据">
+          🔄 刷新数据
+        </button>
+      </div>
+      <div class="grid-4">
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="stat-title">🔶 XHTTP (Worker) 请求数</div>
+            <div class="stat-val" id="stat-xhttp">0</div>
+            <div class="stat-desc">监听端口: 8788 (H2C + H1.1)</div>
+          </div>
+          <div style="margin-top: 0.75rem; height: 36px; position: relative;">
+            <svg id="sparkline-xhttp" width="100%" height="36" style="display: block; overflow: visible;"></svg>
+          </div>
+        </div>
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="stat-title">⚡️ WS (Pages) 请求数</div>
+            <div class="stat-val" id="stat-ws">0</div>
+            <div class="stat-desc">监听端口: 8787</div>
+          </div>
+          <div style="margin-top: 0.75rem; height: 36px; position: relative;">
+            <svg id="sparkline-ws" width="100%" height="36" style="display: block; overflow: visible;"></svg>
+          </div>
+        </div>
+        <div class="card">
+          <div class="stat-title">健康熔断阻断次数</div>
+          <div class="stat-val" style="color: #fbbf24;" id="stat-circuit">0</div>
+          <div class="stat-desc">1101 / 502 / 429 故障隔离</div>
+        </div>
+        <div class="card" style="position: relative;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="stat-title">系统已运行时长</div>
+            <button type="button" class="btn btn-sm" id="btn-manual-gc" onclick="triggerManualGcAction()" title="执行深度内存回收并释放闲置连接与底层缓冲区" style="padding: 2px 8px; font-size: 0.72rem; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer;">
+              ⚡ 立即回收
+            </button>
+          </div>
+          <div class="stat-val" id="stat-uptime">0 分钟</div>
+          <div class="stat-desc" id="stat-memory" style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+            <span id="stat-memory-text">内存占用: -- MB</span>
+            <span id="stat-memory-pill" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.7rem; padding: 1px 6px;">健康</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="section-title">
+          <span>🔶 Worker 后端池 (XHTTP 协议)</span>
+        </div>
+        <div class="backend-grid" id="worker-backends-list">加载中...</div>
+      </div>
+
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="section-title">
+          <span>⚡️ Pages 后端池 (WebSocket 协议)</span>
+        </div>
+        <div class="backend-grid" id="pages-backends-list">加载中...</div>
+      </div>
+
+      <!-- 客户端活跃优选服务器 (Prefer Targets) 实时监控卡片 (放置在后端池下方) -->
+      <div class="card">
+        <div class="section-title">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <span>🌐 客户端活跃优选服务器 (Prefer Nodes)</span>
+            <span class="badge" id="prefer-count-badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.72rem; padding: 0.15rem 0.5rem;">0 个节点</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-outline btn-sm" id="btn-ping-prefer" onclick="pingAllPreferNodes()" title="立即发起 TCP 物理握手测试所有优选节点的往返延迟 (RTT)">
+              ⚡ 一键测速
+            </button>
+            <button class="btn btn-outline btn-sm admin-btn" onclick="clearPreferNodes()" title="清除非默认的历史优选节点记录" style="opacity: 0.85;">
+              🧹 清理
+            </button>
+          </div>
+        </div>
+        <div class="backend-grid" id="prefer-nodes-list" style="margin-bottom: 0;">
+          <div style="color: var(--text-muted); font-size: 0.85rem; padding: 0.5rem 0;">等待客户端流量接入或正在获取优选节点数据...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: 核心配置 -->
+    <div id="tab-settings" class="tab-pane">
+      <div class="card" style="max-width: 800px; margin: 0 auto;">
+        <h2 style="margin-bottom: 1rem; font-size: 1.25rem;">网关参数与后端配置</h2>
+        <div class="form-group">
+          <label class="form-label">默认兜底优选 Server</label>
+          <div class="form-desc">当节点未在路径中携带 prefer= 参数时，网关将直连此服务器</div>
+          <input type="text" class="form-control" id="cfg-defaultPrefer">
+        </div>
+        <div class="form-group">
+          <label class="form-label">流量走势图采样频率 (分钟)</label>
+          <div class="form-desc">控制监控中心 XHTTP 与 WS 走势波形图历史数据采样间隔（支持 1 ~ 60 分钟，默认 5 分钟）</div>
+          <input type="number" min="1" max="1440" class="form-control" id="cfg-trafficSampleMinutes">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Worker 后端域名列表 (XHTTP，英文逗号分隔)</label>
+          <div class="form-desc">支持多个域名轮询，自动进行 SNI / Host 伪装</div>
+          <textarea class="form-control" id="cfg-workerBackends" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pages 后端域名列表 (WebSocket，英文逗号分隔)</label>
+          <div class="form-desc">支持多个域名轮询，自动进行 SNI / Host 伪装</div>
+          <textarea class="form-control" id="cfg-pagesBackends" rows="3"></textarea>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
+          <label class="form-label">监控中心后端额度显示口径</label>
+          <div class="form-desc">选择监控中心后端池各个卡片上显示的额度百分比与进度条统计口径</div>
+          <div style="display: flex; gap: 1.25rem; margin-top: 0.6rem; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.88rem;">
+              <input type="radio" name="cfg-quotaDisplayMode" value="protocol" id="quota-mode-protocol" checked>
+              <span>🔹 <b>单项协议消耗</b> (Worker 计 Worker 额度，Pages 计 Pages 额度，上限各 50,000 / 日)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.88rem;">
+              <input type="radio" name="cfg-quotaDisplayMode" value="total" id="quota-mode-total">
+              <span>🔸 <b>账户总计消耗</b> (统计绑定子账户全部请求综合消耗，上限 100,000 / 日)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
+          <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+            <span>🛡️ Cloudflare 额度自动避让阈值 (%)</span>
+            <span class="badge badge-warning" id="cfg-avoid-threshold-badge" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">95%</span>
+          </label>
+          <div class="form-desc">当某后端绑定的 CF 子账户当日请求额度使用率达到或超过该阈值时，网关动态轮询将<b>自动暂停调度该节点</b>（移出可用池进行断流保护并由其他后端承接）。当所有节点均超阈值时自动降级兜底保留全部节点以防断网。（支持 10 ~ 100%，默认 95%）</div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; max-width: 180px; margin-top: 0.4rem;">
+            <input type="number" min="10" max="100" step="1" class="form-control" id="cfg-cfQuotaAvoidThreshold" value="95" oninput="const b = document.getElementById('cfg-avoid-threshold-badge'); if (b) b.innerText = (this.value || 95) + '%';">
+            <span style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem;">%</span>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <label class="form-label" style="margin-bottom: 0.2rem;">🔗 后端域名与 Cloudflare 子账户关联绑定</label>
+              <div class="form-desc">将后端域名手动绑定至特定的 CF 账户，绑定后将在监控中心实时呈现该节点的额度使用情况与进度条</div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="autoMatchBackendAccounts()" style="font-size: 0.75rem; padding: 0.25rem 0.65rem;">⚡ 智能推导匹配</button>
+          </div>
+          <div id="backend-accounts-mapping-container" style="display: flex; flex-direction: column; gap: 0.65rem; margin-top: 0.75rem;">
+            <div style="color: var(--text-muted); font-size: 0.85rem; padding: 0.5rem 0;">正在加载可用账户列表...</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--card-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <label class="form-label" style="margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🧠 内存自动回收与治理守护 (Memory Guard)</span>
+                <span id="cfg-memory-gc-badge" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.72rem;">检测中...</span>
+              </label>
+              <div class="form-desc">当网关物理内存占用达到阈值时，自动执行深度清理（关闭闲置 H2 连接、清理历史优选缓存与过期 Session，并触发 V8 原生垃圾回收），彻底告别长时间运行内存膨胀。</div>
+            </div>
+            <label class="form-switch" style="margin-left: auto;" title="开启或关闭后台自动内存回收巡检">
+              <input type="checkbox" id="cfg-memory-enabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem;">
+            <div>
+              <label class="form-label" style="font-size: 0.82rem;">自动回收触发阈值 (MB)</label>
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <input type="number" min="50" max="2048" step="10" class="form-control" id="cfg-memory-threshold" value="150">
+                <span style="font-weight: 700; color: var(--text-muted); font-size: 0.85rem;">MB</span>
+              </div>
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 0.82rem;">后台巡检频率 (分钟)</label>
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <input type="number" min="1" max="60" step="1" class="form-control" id="cfg-memory-interval" value="5">
+                <span style="font-weight: 700; color: var(--text-muted); font-size: 0.85rem;">分钟</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置 (即时生效)</button>
+        </div>
+      </div>
+
+      <div class="card" style="max-width: 800px; margin: 1.5rem auto 0 auto;">
+        <h2 style="margin-bottom: 1rem; font-size: 1.25rem;">🔐 Web 控制台管理员密码修改</h2>
+        <div class="form-group">
+          <label class="form-label">管理员用户名</label>
+          <input type="text" class="form-control" id="pwd-user" disabled value="admin">
+        </div>
+        <div class="form-group">
+          <label class="form-label">当前旧密码</label>
+          <input type="password" class="form-control" id="pwd-old" placeholder="请输入当前密码">
+        </div>
+        <div class="form-group">
+          <label class="form-label">新密码</label>
+          <input type="password" class="form-control" id="pwd-new" placeholder="请输入新密码（至少 4 位）">
+        </div>
+        <div class="form-group">
+          <label class="form-label">确认新密码</label>
+          <input type="password" class="form-control" id="pwd-confirm" placeholder="请再次输入新密码">
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+          <button class="btn btn-primary" onclick="submitChangePassword()">🔑 更新密码</button>
+        </div>
+      </div>
+
+      <div class="card" style="max-width: 800px; margin: 1.5rem auto 0 auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <h2 style="font-size: 1.25rem;">📦 历史配置快照与一键回滚</h2>
+          <button class="btn btn-outline btn-sm" onclick="loadConfigBackups()">🔄 刷新快照</button>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          每次保存配置时系统会自动生成历史快照（最多保留 5 份）。如出现误填或故障，可随时一键回滚恢复。
+        </div>
+        <div id="config-backups-container">
+          <div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 1.5rem 0;">正在加载历史快照...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Telegram 调试 -->
+    <div id="tab-telegram" class="tab-pane">
+      <div class="card" style="max-width: 800px; margin: 0 auto;">
+        <h2 style="margin-bottom: 1rem; font-size: 1.25rem;">Telegram 告警与通知配置</h2>
+        <div class="form-group">
+          <label class="form-label">Bot Token</label>
+          <input type="text" class="form-control" id="cfg-tgToken" placeholder="例如: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Chat ID</label>
+          <input type="text" class="form-control" id="cfg-tgChatId" placeholder="例如: -100123456789 或 12345678">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SOCKS5 / 代理通道 (可选)</label>
+          <div class="form-desc">内网非翻墙环境下直通旁路由（例如: socks5://10.10.10.1:7890）</div>
+          <input type="text" class="form-control" id="cfg-tgProxy" placeholder="socks5://10.10.10.1:7890">
+        </div>
+        <div class="form-group">
+          <label class="form-label">API 主机域名</label>
+          <div class="form-desc">默认 api.telegram.org，若有自建 CF 反代可填反代域名</div>
+          <input type="text" class="form-control" id="cfg-tgApiHost" placeholder="api.telegram.org">
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem;">
+          <button class="btn btn-outline" onclick="testTelegram()">✉️ 发送一条测试消息</button>
+          <button class="btn btn-primary" onclick="saveConfig()">💾 保存 Telegram 配置</button>
+        </div>
+        <div id="tg-test-result" style="margin-top: 1rem; font-size: 0.85rem; display: none;"></div>
+      </div>
+    </div>
+
+    <!-- TAB 4: 实时日志 -->
+    <div id="tab-logs" class="tab-pane">
+      <div class="card">
+        <div class="section-title" style="flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span>实时日志监控流 (SSE 实时推送)</span>
+            <span id="log-count-badge" class="badge badge-secondary" style="font-size: 0.75rem;">0 条日志</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="log-search-filter" placeholder="🔍 过滤关键词 (如 429, 1101, error)..." class="form-control" style="width: 250px; padding: 0.35rem 0.65rem; font-size: 0.8rem;" oninput="applyLogFilter()">
+            <button class="btn btn-outline btn-sm" onclick="setLogLevelFilter('all')" id="btn-filter-all" style="font-weight: 700;">全部</button>
+            <button class="btn btn-outline btn-sm" onclick="setLogLevelFilter('error')" id="btn-filter-error">🔴 错误</button>
+            <button class="btn btn-outline btn-sm" onclick="setLogLevelFilter('warn')" id="btn-filter-warn">🟡 警告</button>
+            <button class="btn btn-outline btn-sm" id="btn-pause-log" onclick="togglePauseLog()">暂停滚屏</button>
+            <button class="btn btn-outline btn-sm" onclick="clearLogs()">清屏</button>
+          </div>
+        </div>
+        <div class="terminal" id="terminal"></div>
+      </div>
+    </div>
+
+    <!-- TAB 5: 客户端配置 (Sub-Store 脚本) -->
+    <div id="tab-clients" class="tab-pane">
+      <div class="card" style="max-width: 950px; margin: 0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.75rem;">
+          <div>
+            <h2 style="font-size: 1.25rem; font-weight:700;">Sub-Store 节点转换操作脚本示例</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top:0.25rem;">
+              在 Sub-Store 订阅中添加【脚本操作 (Script Operator)】，填入此脚本即可将原订阅节点全自动接入本地网关。
+            </p>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="copySubStoreScript()">📋 一键复制完整 JS 脚本</button>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <textarea class="form-control" rows="22" readonly id="code-substore-script" style="font-family:Consolas, Monaco, monospace; font-size:0.85rem; line-height:1.45; background:#0b0f19; color:#93c5fd; border:1px solid rgba(255,255,255,0.1);"></textarea>
+        </div>
+      </div>
+    </div>
+    <!-- TAB 6: CF 额度面板 (原生多账户额度与管理) -->
+    <div id="tab-cfusage" class="tab-pane">
+      <div class="card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 42px; height: 42px; border-radius: 10px; background: linear-gradient(135deg, #f59e0b, #fbbf24); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="#ffffff" style="display: block;"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
+            </div>
+            <div>
+              <div class="cf-card-title" style="font-weight: 700; font-size: 1.15rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                Cloudflare 多账户额度监控中心
+                <span class="badge badge-success" style="font-size: 0.7rem; padding: 0.15rem 0.5rem;" id="cf-account-count-badge">自动巡检</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+                实时展示各子账户独立请求用量、KV/D1/R2 资源消耗与 Telegram 阈值告警
+              </div>
+            </div>
+          </div>
+
+          <div class="cf-header-btn-group" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" onclick="loadCfAccounts(true)" title="立即刷新各子账户最新数据">
+              🔄 刷新数据
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleCfAuthDrawer()" title="配置各模式凭据与告警阈值">
+              ⚙️ 配置凭据
+            </button>
+            <!-- 仅在模式 A (UsagePanel) 下显示的专属组合按钮组，模式 B (官方直连) 自动隐藏 -->
+            <div id="cf-mode-a-btns" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+              <button class="btn btn-secondary btn-sm" onclick="toggleCfIframeView()" id="cf-toggle-iframe-btn" title="在当前页面折叠/展开嵌入式原版后台">
+                🖥️ 切换原版后台
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="openCfUsageExternal()" id="cf-open-external-btn" title="在新标签页中独立打开原版后台">
+                ↗️ 新窗口打开
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 可折叠的凭据配置抽屉 -->
+        <div id="cf-auth-drawer" style="display: none; margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border);">
+          <!-- 双轨模式切换单选标签 -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.75rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm" id="cf-tab-mode-usagepanel" onclick="switchCfConfigMode('usagepanel')" style="border-radius: 8px;">
+              🌐 模式 A: cmliu UsagePanel 镜像聚合
+            </button>
+            <button type="button" class="btn btn-sm" id="cf-tab-mode-direct" onclick="switchCfConfigMode('direct')" style="border-radius: 8px;">
+              ⚡ 模式 B: Cloudflare 官方 API 直连 (Account ID + Token)
+            </button>
+          </div>
+
+          <!-- 模式 A 表单面板 -->
+          <div id="cf-pane-usagepanel">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; align-items: flex-end;">
+              <div class="form-group" style="margin-bottom:0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0;">上游面板地址</label>
+                  <a href="javascript:void(0)" onclick="openCfUsageExternal()" style="font-size: 0.75rem; color: #60a5fa; text-decoration: none;" title="在新窗口中直接打开此上游面板">↗️ 新窗口打开</a>
+                </div>
+                <input type="text" id="cf-cfg-url" class="form-control" style="font-size: 0.85rem;" placeholder="https://panel.aihdde.eu.org">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size: 0.8rem;">面板管理员账号</label>
+                <input type="text" id="cf-cfg-user" class="form-control" style="font-size: 0.85rem;" placeholder="admin">
+              </div>
+              <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label" style="font-size: 0.8rem;">面板管理员密码</label>
+                <input type="password" id="cf-cfg-pass" class="form-control" style="font-size: 0.85rem;" placeholder="请输入面板管理密码">
+              </div>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.75rem;">
+              💡 模式 A 通过 cmliu 项目面板聚合各子账户，只需填入部署好的面板网页地址与管理员账号密码即可。
+            </div>
+          </div>
+
+          <!-- 模式 B 官方 API 直连面板 -->
+          <div id="cf-pane-direct" style="display: none;">
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.85rem; line-height: 1.5;">
+              ⚡ <b>官方直连模式</b>：网关由本地直接请求 Cloudflare 官方 GraphQL & REST 接口，<b>零第三方网页依赖，抗风控防阻断</b>。<br>
+              请为每个子账户添加 <b>Account ID</b>（32 位标识）与具有只读权限的 <b>API Token</b>（包含 Workers/Analytics 读取权限）：
+            </div>
+            <div id="cf-direct-accounts-container" style="display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 0.85rem;">
+              <!-- 动态子账户行 -->
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="addDirectAccountRow()">+ 添加子账户</button>
+              <div style="font-size: 0.74rem; color: var(--text-muted);">
+                已加密储存于本地 config.json，仅用于拉取当日额度
+              </div>
+            </div>
+          </div>
+
+          <!-- 自定义 Telegram 额度告警阈值卡片 -->
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.85rem 1rem; margin-top: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <div style="font-weight: 700; font-size: 0.92rem; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
+                  <span>🔔 Telegram 额度推送阈值</span>
+                  <span class="badge badge-warning" id="cf-cfg-threshold-badge" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">80%</span>
+                </div>
+                <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 0.25rem;">
+                  当任一子账户今日请求使用率达到或超过该百分比时，自动向绑定的 Telegram 推送预警提醒
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <input type="number" id="cf-cfg-alert-threshold" class="form-control" style="width: 85px; font-size: 0.92rem; text-align: center; font-weight: 700; padding: 0.4rem 0.3rem;" min="10" max="100" step="5" value="80" oninput="const b = document.getElementById('cf-cfg-threshold-badge'); if (b) b.innerText = (this.value || 80) + '%';">
+                <span style="font-weight: 700; color: var(--text-muted); font-size: 0.95rem;">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              💡 凭据安全保存在本地 NAS 中；后台每 5 分钟自动静默拉取最新用量并全站实时联动。
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn btn-primary btn-sm" onclick="saveCfCredentials()">💾 保存配置并同步</button>
+              <button class="btn btn-secondary btn-sm" onclick="toggleCfAuthDrawer()">取消</button>
+            </div>
+          </div>
+          <div id="cf-auth-status-msg" style="display: none; margin-top: 0.75rem; font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 6px;"></div>
+        </div>
+      </div>
+
+      <!-- 汇总展示容器 -->
+      <div id="cf-summary-container" style="margin-bottom: 1.25rem;"></div>
+
+      <!-- 原生子账户额度卡片容器 -->
+      <div id="cf-accounts-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+        <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 2.5rem 1rem;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⏳</div>
+          <div style="color: var(--text-muted); font-size: 0.9rem;">正在同步 Cloudflare 子账户额度数据...</div>
+        </div>
+      </div>
+
+      <!-- 嵌入式原生管理后台 (可折叠展示，仅模式 A) -->
+      <div id="cf-iframe-section" style="display: none; margin-top: 1.25rem;">
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--card-border); position: relative; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);">
+          <!-- 嵌入视窗专属顶栏 (工具栏) -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--card-border); flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="font-size: 1.1rem;">🖥️</span>
+              <span style="font-weight: 600; font-size: 0.9rem; color: #fff;">UsagePanel 原版后台</span>
+              <span id="cf-iframe-url-tag" style="font-size: 0.75rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 0.15rem 0.5rem; border-radius: 4px; font-family: monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <button class="btn btn-secondary btn-sm" onclick="reloadCfIframe()" style="padding: 0.3rem 0.65rem; font-size: 0.8rem;" title="重新载入后台页面">
+                🔄 刷新视窗
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="openCfUsageExternal()" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; background: #6366f1; border-color: #6366f1;" title="在新标签页中独立打开原版后台">
+                ↗️ 新窗口打开
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="toggleCfIframeView()" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; color: var(--text-muted);" title="收起此后台">
+                ✕ 收起后台
+              </button>
+            </div>
+          </div>
+          <!-- 视窗主体 -->
+          <div style="position: relative; height: calc(100vh - 280px); min-height: 650px;">
+            <div id="cf-iframe-loader" style="position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; z-index: 10;">
+              <div style="font-size: 2rem; animation: pulse 1.5s infinite;">☁️</div>
+              <div style="font-size: 0.9rem; color: var(--text-muted);">正在连接 Cloudflare 原版后台...</div>
+            </div>
+            <iframe id="cf-usage-iframe" src="about:blank" style="width: 100%; height: 100%; border: none; display: block;" allow="clipboard-read; clipboard-write"></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 登录与首次初始化密码弹窗 -->
+    <div id="auth-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.85); backdrop-filter:blur(12px); z-index:9999; align-items:center; justify-content:center; padding:1.5rem;">
+      <div class="card" style="width:100%; max-width:420px; box-shadow:0 25px 60px rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.3s ease;">
+        <div style="text-align:center; margin-bottom:1.5rem;">
+          <div style="font-size:2.5rem; margin-bottom:0.5rem;" id="auth-icon">🔐</div>
+          <h2 style="font-size:1.35rem; font-weight:700; color:#fff;" id="auth-title">管理员登录</h2>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.35rem;" id="auth-subtitle">请输入凭据以访问控制台</p>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:1rem;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">管理员账号</label>
+            <input type="text" id="auth-user" class="form-control" placeholder="admin" value="admin">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" id="auth-pwd-label">登录密码</label>
+            <input type="password" id="auth-pwd" class="form-control" placeholder="请输入密码" onkeydown="if(event.key==='Enter')submitAuthForm()">
+          </div>
+          <div class="form-group" id="auth-confirm-group" style="display:none; margin-bottom:0;">
+            <label class="form-label">确认密码</label>
+            <input type="password" id="auth-pwd-confirm" class="form-control" placeholder="请再次确认新密码" onkeydown="if(event.key==='Enter')submitAuthForm()">
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:-0.25rem;">
+            <label style="display:inline-flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:var(--text-muted); cursor:pointer; user-select:none;">
+              <input type="checkbox" id="auth-remember" style="accent-color:#6366f1; width:16px; height:16px; cursor:pointer;">
+              <span>记住用户名与密码</span>
+            </label>
+          </div>
+          <div id="auth-error" style="display:none; font-size:0.85rem; color:#f87171; background:rgba(239,68,68,0.1); padding:0.5rem 0.75rem; border-radius:6px; border:1px solid rgba(239,68,68,0.2);"></div>
+          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:0.75rem; margin-top:0.5rem;" id="auth-submit-btn" onclick="submitAuthForm()">登 录</button>
+        </div>
+      </div>
+    </div>
+    <!-- 页面级通用二次确认模态弹窗 (Custom Confirm Modal) -->
+    <div id="custom-confirm-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.78); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:10000; align-items:center; justify-content:center; padding:1.25rem;">
+      <div class="card" style="width:100%; max-width:440px; box-shadow:0 25px 60px rgba(0,0,0,0.8); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.25s ease; padding: 1.5rem;">
+        <div style="display:flex; align-items:flex-start; gap:0.9rem; margin-bottom:1.2rem;">
+          <div id="custom-confirm-icon" style="width:42px; height:42px; border-radius:10px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; display:flex; align-items:center; justify-content:center; font-size:1.4rem; flex-shrink:0;">
+            ⚠️
+          </div>
+          <div style="flex:1; min-width:0;">
+            <h3 id="custom-confirm-title" style="font-size:1.15rem; font-weight:700; color:#fff; margin-bottom:0.35rem;">操作确认</h3>
+            <div id="custom-confirm-msg" style="font-size:0.88rem; color:var(--text-muted); line-height:1.5; word-break:break-all;">
+              您确定要执行此操作吗？
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.25rem; border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem;">
+          <button id="custom-confirm-cancel" class="btn btn-outline" style="min-width:82px; justify-content:center;">取消</button>
+          <button id="custom-confirm-ok" class="btn btn-primary" style="min-width:82px; justify-content:center;">确定</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/app.js?v=20261015_1"></script>
+</body>
+</html>

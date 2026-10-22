@@ -1,0 +1,13 @@
+# Go binaries
+edgetunnel-lb*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Config & local runtime
+config.json
+backups/
+traffic*.json
+*.log

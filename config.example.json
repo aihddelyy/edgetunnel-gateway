@@ -1,0 +1,41 @@
+{
+  "httpPort": 8787,
+  "h2cPort": 8788,
+  "webPort": 8789,
+  "defaultPrefer": "cf.example.com",
+  "trafficSampleMinutes": 5,
+  "cfPanelUrl": "https://usagepanel.pages.dev/",
+  "cfQuotaAvoidThreshold": 95,
+  "cfAlertThreshold": 80,
+  "cfPanel": {
+    "url": "https://usagepanel.pages.dev/",
+    "username": "admin",
+    "password": "your_password",
+    "alertThreshold": 80
+  },
+  "pagesBackends": [
+    "p1.example.com",
+    "p2.example.com"
+  ],
+  "workerBackends": [
+    "w1.example.com",
+    "w2.example.com"
+  ],
+  "auth": {
+    "enabled": false,
+    "username": "admin",
+    "passwordHash": "",
+    "salt": ""
+  },
+  "telegram": {
+    "botToken": "",
+    "chatId": "",
+    "proxy": "socks5://10.10.10.1:7890",
+    "apiHost": "api.telegram.org"
+  },
+  "memoryGuard": {
+    "enabled": true,
+    "thresholdMB": 150,
+    "intervalMinutes": 5
+  }
+}
