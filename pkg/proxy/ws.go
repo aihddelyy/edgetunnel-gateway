@@ -236,20 +236,26 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 	errCh := make(chan error, 2)
 
 	go func() {
+		bufPtr := GetBuffer32k()
+		defer PutBuffer32k(bufPtr)
+
 		var src io.Reader = c1
 		if r1 != nil {
 			src = io.MultiReader(r1, c1)
 		}
-		_, err := io.Copy(c2, src)
+		_, err := io.CopyBuffer(c2, src, *bufPtr)
 		errCh <- err
 	}()
 
 	go func() {
+		bufPtr := GetBuffer32k()
+		defer PutBuffer32k(bufPtr)
+
 		var src io.Reader = c2
 		if r2 != nil {
 			src = io.MultiReader(r2, c2)
 		}
-		_, err := io.Copy(c1, src)
+		_, err := io.CopyBuffer(c1, src, *bufPtr)
 		errCh <- err
 	}()
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -21,6 +22,12 @@ import (
 )
 
 func main() {
+	// 针对嵌入式/软路由环境优化 Go 运行时内存：
+	// 1. 设置更敏捷的 GC 百分比 (25%)，防止堆内存膨胀
+	// 2. 设置 30MB 软内存上限，引导运行时及时将未使用的页归还给 Linux 内核
+	debug.SetGCPercent(25)
+	debug.SetMemoryLimit(30 * 1024 * 1024)
+
 	configPath := flag.String("config", "config.json", "配置文件路径")
 	flag.Parse()
 

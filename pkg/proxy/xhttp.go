@@ -143,7 +143,9 @@ func (g *XHTTPGateway) getOrCreateTransport(connectHost string, connectPort int,
 			}
 			return tlsConn, nil
 		},
-		AllowHTTP: false,
+		AllowHTTP:       false,
+		ReadIdleTimeout: 30 * time.Second,
+		PingTimeout:     10 * time.Second,
 	}
 
 	g.transports[key] = t
@@ -160,13 +162,16 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 	g.preferMgr.RecordActivity(targetServer, 0, "ok", protoLabel)
 
 	// 非阻塞读取客户端握手首包（VLESS / XHTTP 握手数据，通常 200~500 字节，严禁 LimitReader 堵塞）
-	firstBuf := make([]byte, 32768)
+	firstBufPtr := GetBuffer32k()
+	firstBuf := *firstBufPtr
 	n, readErr := r.Body.Read(firstBuf)
 	if readErr != nil && readErr != io.EOF && n == 0 {
+		PutBuffer32k(firstBufPtr)
 		return
 	}
 	handshakeBytes := make([]byte, n)
 	copy(handshakeBytes, firstBuf[:n])
+	PutBuffer32k(firstBufPtr)
 
 	var triedBackends []string
 	const maxRetries = 2
@@ -286,7 +291,8 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 
 		// 下行数据流式实时灌入（带 Flush，确保代理握手首包与后续流零延迟抵达客户端）
 		flusher, isFlusher := w.(http.Flusher)
-		downBuf := make([]byte, 32768)
+		downBufPtr := GetBuffer32k()
+		downBuf := *downBufPtr
 		for {
 			nr, er := resp.Body.Read(downBuf)
 			if nr > 0 {
@@ -299,6 +305,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 				break
 			}
 		}
+		PutBuffer32k(downBufPtr)
 		_ = resp.Body.Close()
 		return
 	}

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,6 +68,7 @@ func NewWebServer(cfgMgr *config.Manager, healthMgr *health.Manager, preferMgr *
 	}
 	s.initTrafficBaseline()
 	s.startTrafficSampler()
+	s.startMemoryGuard()
 	return s
 }
 
@@ -175,6 +177,38 @@ func (s *Server) startTrafficSampler() {
 		defer ticker.Stop()
 		for range ticker.C {
 			s.recordTrafficSample()
+		}
+	}()
+}
+
+func (s *Server) startMemoryGuard() {
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			cfg := s.cfgMgr.Get()
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+
+			sysMB := mem.Sys / 1024 / 1024
+			heapIdleMB := mem.HeapIdle / 1024 / 1024
+
+			// 1. 如果用户启用了配置阈值并超过该上限，强制全面 GC 并退还内存给 OS
+			if cfg.MemoryGuard.Enabled && cfg.MemoryGuard.ThresholdMB > 0 {
+				if sysMB >= uint64(cfg.MemoryGuard.ThresholdMB) {
+					logger.Warnf("[MemoryGuard] 🚨 系统内存占用 (%dMB) 超过阈值 (%dMB)，正在主动回收并归还物理内存...", sysMB, cfg.MemoryGuard.ThresholdMB)
+					runtime.GC()
+					debug.FreeOSMemory()
+					continue
+				}
+			}
+
+			// 2. 嵌入式/OpenWrt 智能常驻优化：只要有超过 4MB 未释放的空闲堆碎片，主动归还操作系统
+			if heapIdleMB >= 4 {
+				runtime.GC()
+				debug.FreeOSMemory()
+			}
 		}
 	}()
 }
@@ -816,9 +850,10 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	if path == "/api/memory/gc" && r.Method == http.MethodPost {
 		runtime.GC()
+		debug.FreeOSMemory()
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"ok":      true,
-			"message": "控制台手动一键垃圾回收执行完毕",
+			"message": "控制台手动一键垃圾回收执行完毕，已向操作系统内核归还空闲物理内存",
 		})
 		return
 	}
