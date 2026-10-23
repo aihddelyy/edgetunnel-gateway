@@ -11,9 +11,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -28,6 +25,8 @@ import (
 	"edgetunnel-lb/pkg/notify"
 	"edgetunnel-lb/pkg/prefer"
 	"edgetunnel-lb/pkg/quota"
+	"edgetunnel-lb/pkg/updater"
+	"edgetunnel-lb/pkg/version"
 )
 
 //go:embed public/*
@@ -367,6 +366,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Auth Guard for other administrative routes
 	isPublic := path == "/api/status" || path == "/api/prefer/ping" || path == "/api/ping-all" || path == "/api/memory/status" ||
+		path == "/api/update/check" ||
 		(strings.HasPrefix(path, "/api/cf-panel/") && path != "/api/cf-panel/target")
 	if !isPublic && !s.checkAuth(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"ok": false, "error": "请先登录以执行管理员操作"})
@@ -393,7 +393,10 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		allocMB := memStats.Alloc / 1024 / 1024
 
 		respData := map[string]interface{}{
-			"uptime": time.Now().Unix() - s.metrics.StartTime,
+			"version": version.CurrentVersion,
+			"os":      runtime.GOOS,
+			"arch":    runtime.GOARCH,
+			"uptime":  time.Now().Unix() - s.metrics.StartTime,
 			"cluster": map[string]interface{}{
 				"enabled":     true,
 				"workerCount": runtime.NumCPU(),
@@ -875,33 +878,63 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update Check
+	if path == "/api/update/check" && r.Method == http.MethodGet {
+		cfg := s.cfgMgr.Get()
+		res, err := updater.CheckForUpdate(cfg.Telegram.Proxy)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": res})
+		return
+	}
+
+	// Update Apply
+	if path == "/api/update/apply" && r.Method == http.MethodPost {
+		var req struct {
+			DownloadURL string `json:"downloadUrl"`
+			UseMirror   bool   `json:"useMirror"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		cfg := s.cfgMgr.Get()
+		if req.DownloadURL == "" {
+			chk, err := updater.CheckForUpdate(cfg.Telegram.Proxy)
+			if err != nil {
+				writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": "无法获取最新下载链接: " + err.Error()})
+				return
+			}
+			if chk.DownloadURL == "" {
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"ok":    false,
+					"error": fmt.Sprintf("未在 Release 中找到适配当前平台 (%s/%s) 的编译包", chk.OS, chk.Arch),
+				})
+				return
+			}
+			req.DownloadURL = chk.DownloadURL
+		}
+
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			if err := updater.ApplyUpdate(req.DownloadURL, req.UseMirror, cfg.Telegram.Proxy); err != nil {
+				logger.Errorf("[Updater] 自动下载更新失败: %v", err)
+			}
+		}()
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"ok":      true,
+			"message": "更新任务已启动，正在后台下载并原子替换，网关将在几秒后自动重启！",
+		})
+		return
+	}
+
 	// Restart
 	if path == "/api/restart" && r.Method == http.MethodPost {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "message": "正在安全重启网关..."})
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			exe, err := os.Executable()
-			if err == nil {
-				args := os.Args[1:]
-				if runtime.GOOS == "windows" {
-					cmdStr := fmt.Sprintf("timeout /t 1 /nobreak >nul & start \"\" \"%s\"", exe)
-					for _, a := range args {
-						cmdStr += fmt.Sprintf(" \"%s\"", a)
-					}
-					_ = exec.Command("cmd.exe", "/c", cmdStr).Start()
-				} else {
-					// Linux / OpenWrt: 自动切换到程序实际所在的物理目录，延迟 1 秒释放端口后后台自启动
-					cmdArgs := ""
-					for _, a := range args {
-						cmdArgs += fmt.Sprintf(" '%s'", a)
-					}
-					exeDir := filepath.Dir(exe)
-					logPath := filepath.Join(exeDir, "app.log")
-					shCmd := fmt.Sprintf("sleep 1 && cd '%s' && nohup '%s'%s >> '%s' 2>&1 &", exeDir, exe, cmdArgs, logPath)
-					_ = exec.Command("/bin/sh", "-c", shCmd).Start()
-				}
-			}
-			os.Exit(0)
+			updater.RestartSelf()
 		}()
 		return
 	}

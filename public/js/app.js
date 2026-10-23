@@ -406,6 +406,17 @@ let isPausedLog = false;
         if (statXhttp) statXhttp.innerText = data.metrics.xhttpRequests;
         if (statCircuit) statCircuit.innerText = data.metrics.circuitTrips;
         if (statUptime) statUptime.innerText = formatDuration(data.uptime);
+
+        if (data.version) {
+          const headerVer = document.getElementById('header-version-text');
+          if (headerVer) headerVer.innerText = data.version;
+          const updateCurVer = document.getElementById('update-cur-ver');
+          if (updateCurVer) updateCurVer.innerText = data.version;
+        }
+        if (data.os && data.arch) {
+          const updateCurArch = document.getElementById('update-cur-arch');
+          if (updateCurArch) updateCurArch.innerText = `${data.os}/${data.arch}`;
+        }
         
         const statMemoryText = document.getElementById('stat-memory-text');
         const statMemoryPill = document.getElementById('stat-memory-pill');
@@ -2353,6 +2364,221 @@ function renderSubAccountsCards(accounts) {
         applyAuthState(false);
         startApp();
       }
+
+      // 初始化完成后 2 秒，静默检索 GitHub 是否有新版本
+      setTimeout(() => {
+        checkUpdate(true);
+      }, 2000);
     }
+
+    // ================= 功能: GitHub Releases 在线查询、下载与平滑更新 =================
+    let latestUpdateInfo = null;
+    let isCheckingUpdate = false;
+    let isApplyingUpdate = false;
+
+    function openUpdateModal() {
+      const modal = document.getElementById('update-modal');
+      if (modal) modal.style.display = 'flex';
+      checkUpdate(false);
+    }
+    window.openUpdateModal = openUpdateModal;
+
+    function closeUpdateModal() {
+      if (isApplyingUpdate) {
+        showToast('⏳ 正在执行更新与自重启，请稍候不要关闭页面...');
+        return;
+      }
+      const modal = document.getElementById('update-modal');
+      if (modal) modal.style.display = 'none';
+    }
+    window.closeUpdateModal = closeUpdateModal;
+
+    async function checkUpdate(silent = false) {
+      if (isCheckingUpdate) return;
+      isCheckingUpdate = true;
+
+      const banner = document.getElementById('update-banner');
+      const bannerIcon = document.getElementById('update-banner-icon');
+      const bannerText = document.getElementById('update-banner-text');
+      const latestVerEl = document.getElementById('update-latest-ver');
+      const statusBadge = document.getElementById('update-status-badge');
+      const notesBox = document.getElementById('update-notes-box');
+      const releaseDateEl = document.getElementById('update-release-date');
+      const applyBtn = document.getElementById('btn-apply-update');
+      const badgeDot = document.getElementById('update-badge-dot');
+      const recheckBtn = document.getElementById('btn-recheck-update');
+
+      if (!silent) {
+        if (banner) {
+          banner.style.background = 'rgba(59,130,246,0.12)';
+          banner.style.color = '#93c5fd';
+          banner.style.borderColor = 'rgba(59,130,246,0.25)';
+        }
+        if (bannerIcon) bannerIcon.innerText = '🔍';
+        if (bannerText) bannerText.innerText = '正在通过 GitHub API 检索最新发布版本...';
+        if (latestVerEl) latestVerEl.innerText = '正在检索...';
+        if (recheckBtn) recheckBtn.disabled = true;
+      }
+
+      try {
+        const res = await fetch('/api/update/check');
+        const json = await res.json();
+
+        if (!json.ok) {
+          throw new Error(json.error || '检查更新失败');
+        }
+
+        const data = json.data;
+        latestUpdateInfo = data;
+
+        if (latestVerEl) latestVerEl.innerText = data.latestVersion;
+        if (releaseDateEl && data.publishedAt) {
+          const date = new Date(data.publishedAt);
+          releaseDateEl.innerText = `发布于: ${date.toLocaleString('zh-CN', { hour12: false })}`;
+        }
+        if (notesBox) {
+          notesBox.innerText = data.releaseNotes || '作者未填写本次 Release 详细说明。';
+        }
+
+        if (data.hasUpdate) {
+          // 发现新版本！
+          if (badgeDot) badgeDot.style.display = 'inline-block';
+          if (statusBadge) {
+            statusBadge.style.display = 'inline-block';
+            statusBadge.innerText = '发现新版本';
+            statusBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+            statusBadge.style.color = '#34d399';
+          }
+          if (banner) {
+            banner.style.background = 'rgba(16, 185, 129, 0.15)';
+            banner.style.color = '#34d399';
+            banner.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+          }
+          if (bannerIcon) bannerIcon.innerText = '🎉';
+          if (bannerText) bannerText.innerText = `检测到全新版本 ${data.latestVersion}！推荐立即下载更新体验优化。`;
+          if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.innerText = '🚀 立即下载并更新';
+          }
+          if (!silent) {
+            showToast(`🎉 发现新版本: ${data.latestVersion}！`);
+          }
+        } else {
+          // 已是最新版本
+          if (badgeDot) badgeDot.style.display = 'none';
+          if (statusBadge) {
+            statusBadge.style.display = 'inline-block';
+            statusBadge.innerText = '已是最新';
+            statusBadge.style.background = 'rgba(100, 116, 139, 0.2)';
+            statusBadge.style.color = '#94a3b8';
+          }
+          if (banner) {
+            banner.style.background = 'rgba(255, 255, 255, 0.05)';
+            banner.style.color = '#cbd5e1';
+            banner.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+          }
+          if (bannerIcon) bannerIcon.innerText = '✅';
+          if (bannerText) bannerText.innerText = `当前已是最新正式版 (${data.currentVersion})，运行状态良好。`;
+          if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.innerText = '🔄 重新覆盖安装';
+          }
+          if (!silent) {
+            showToast('✅ 当前已是最新版本');
+          }
+        }
+      } catch (err) {
+        if (!silent) {
+          if (banner) {
+            banner.style.background = 'rgba(239, 68, 68, 0.15)';
+            banner.style.color = '#f87171';
+            banner.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          }
+          if (bannerIcon) bannerIcon.innerText = '⚠️';
+          if (bannerText) bannerText.innerText = '检查更新失败: ' + err.message;
+          showToast('❌ 检查更新异常: ' + err.message, true);
+        }
+      } finally {
+        isCheckingUpdate = false;
+        if (recheckBtn) recheckBtn.disabled = false;
+      }
+    }
+    window.manualCheckUpdate = () => checkUpdate(false);
+
+    async function applyUpdateAction() {
+      if (isApplyingUpdate) return;
+      if (!latestUpdateInfo) {
+        showToast('⚠️ 请先检查更新获取最新版本信息', true);
+        return;
+      }
+
+      const isMirror = document.getElementById('update-mirror-checkbox')?.checked ?? true;
+      const targetVer = latestUpdateInfo.latestVersion || '最新版';
+      const ok = await showConfirm(
+        `确定要下载并更新至 ${targetVer} 吗？\n\n系统将自动通过 ${isMirror ? '加速镜像源' : 'GitHub 官方源'} 下载二进制、校验完整性并完成原子替换与平滑重启。`,
+        {
+          title: '确认在线更新',
+          confirmText: '立即更新',
+          icon: '🚀'
+        }
+      );
+      if (!ok) return;
+
+      isApplyingUpdate = true;
+      const progressArea = document.getElementById('update-progress-area');
+      const progressText = document.getElementById('update-progress-text');
+      const applyBtn = document.getElementById('btn-apply-update');
+      const recheckBtn = document.getElementById('btn-recheck-update');
+
+      if (progressArea) progressArea.style.display = 'block';
+      if (progressText) progressText.innerText = `正在下载 ${latestUpdateInfo.targetAsset || '新版本程序'}...`;
+      if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.innerText = '⏳ 正在下载更新...';
+      }
+      if (recheckBtn) recheckBtn.disabled = true;
+
+      try {
+        const res = await authFetch('/api/update/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            downloadUrl: latestUpdateInfo.downloadUrl,
+            useMirror: isMirror
+          })
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          throw new Error(json.error || '下发更新任务失败');
+        }
+
+        if (progressText) {
+          progressText.innerText = '✅ 更新包已下载，正在原子替换并平滑重启网关...';
+        }
+        showToast('🎉 更新成功！网关正在重启，将在 5 秒后自动刷新页面...');
+
+        let countdown = 5;
+        const countTimer = setInterval(() => {
+          countdown--;
+          if (progressText) {
+            progressText.innerText = `✅ 网关自重启就绪，将在 ${countdown} 秒后刷新页面...`;
+          }
+          if (countdown <= 0) {
+            clearInterval(countTimer);
+            location.reload();
+          }
+        }, 1000);
+      } catch (err) {
+        isApplyingUpdate = false;
+        if (progressArea) progressArea.style.display = 'none';
+        if (applyBtn) {
+          applyBtn.disabled = false;
+          applyBtn.innerText = '🚀 重新尝试更新';
+        }
+        if (recheckBtn) recheckBtn.disabled = false;
+        showToast('❌ 执行更新失败: ' + err.message, true);
+      }
+    }
+    window.applyUpdateAction = applyUpdateAction;
 
     initApp();

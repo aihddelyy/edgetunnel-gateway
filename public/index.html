@@ -23,7 +23,12 @@
     </div>
     <div class="header-actions">
       <div class="status-pill" title="网关服务正常运行中"><span class="dot"></span><span class="status-text">服务就绪</span></div>
-            <button class="btn btn-outline btn-sm" onclick="toggleTheme()" id="theme-toggle-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;" title="切换至明亮浅色模式">
+      <button class="btn btn-outline btn-sm" id="btn-header-update" onclick="openUpdateModal()" style="display: inline-flex; align-items: center; gap: 0.35rem;" title="检查 GitHub 最新发布版本与在线更新">
+        <span>🚀</span>
+        <span id="header-version-text">v1.0.1</span>
+        <span id="update-badge-dot" style="display:none; width:7px; height:7px; background:#ef4444; border-radius:50%; box-shadow:0 0 6px #ef4444;" title="发现新版本！"></span>
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="toggleTheme()" id="theme-toggle-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;" title="切换至明亮浅色模式">
         <svg id="theme-sun-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
         <svg id="theme-moon-icon" style="display:none;" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
         <span id="theme-btn-text">浅色模式</span>
@@ -562,6 +567,83 @@
         <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.25rem; border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem;">
           <button id="custom-confirm-cancel" class="btn btn-outline" style="min-width:82px; justify-content:center;">取消</button>
           <button id="custom-confirm-ok" class="btn btn-primary" style="min-width:82px; justify-content:center;">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🚀 在线检查更新与原子平滑升级模态弹窗 (Update Modal) -->
+    <div id="update-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.85); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); z-index:10001; align-items:center; justify-content:center; padding:1.25rem;">
+      <div class="card" style="width:100%; max-width:540px; box-shadow:0 25px 60px rgba(0,0,0,0.85); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.25s ease; padding: 1.5rem; max-height:90vh; display:flex; flex-direction:column;">
+        <!-- 弹窗标题栏 -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.2rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.75rem;">
+          <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span style="font-size:1.4rem;">🚀</span>
+            <div>
+              <h3 style="font-size:1.15rem; font-weight:700; color:#fff; margin:0;">系统版本与在线更新</h3>
+              <p style="font-size:0.78rem; color:var(--text-muted); margin:0.15rem 0 0 0;">通过 GitHub 官方发布源一键拉取最新程序并安全平滑重启</p>
+            </div>
+          </div>
+          <button type="button" onclick="closeUpdateModal()" style="background:none; border:none; color:var(--text-muted); font-size:1.4rem; cursor:pointer; line-height:1; padding:0 4px;" title="关闭">&times;</button>
+        </div>
+
+        <!-- 版本对比横幅卡片 -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:1rem;">
+          <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem;">当前运行版本</div>
+            <div style="font-size:1.15rem; font-weight:700; color:#60a5fa; display:flex; align-items:center; gap:0.4rem;">
+              <span id="update-cur-ver">v1.0.1</span>
+              <span id="update-cur-arch" style="font-size:0.7rem; background:rgba(96,165,250,0.15); padding:1px 6px; border-radius:4px; font-weight:500;">linux/amd64</span>
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem;">GitHub 最新发布</div>
+            <div style="font-size:1.15rem; font-weight:700; color:#34d399; display:flex; align-items:center; gap:0.4rem;">
+              <span id="update-latest-ver">查询中...</span>
+              <span id="update-status-badge" style="display:none; font-size:0.7rem; padding:1px 6px; border-radius:4px; font-weight:500;"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 状态提示横幅 -->
+        <div id="update-banner" style="margin-bottom:1rem; padding:0.6rem 0.9rem; border-radius:8px; font-size:0.85rem; display:flex; align-items:center; gap:0.5rem; background:rgba(59,130,246,0.12); color:#93c5fd; border:1px solid rgba(59,130,246,0.25);">
+          <span id="update-banner-icon">🔍</span>
+          <span id="update-banner-text">正在查询 GitHub 官方最新版本信息...</span>
+        </div>
+
+        <!-- 更新日志区域 (可滚动) -->
+        <div style="flex:1; min-height:0; display:flex; flex-direction:column; margin-bottom:1rem;">
+          <div style="font-size:0.82rem; font-weight:600; color:#e2e8f0; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+            <span>📝 本次更新日志 (Release Notes)</span>
+            <span id="update-release-date" style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;"></span>
+          </div>
+          <div id="update-notes-box" style="flex:1; min-height:120px; max-height:220px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem; font-size:0.82rem; line-height:1.6; color:#cbd5e1; white-space:pre-wrap; word-break:break-word; font-family:'JetBrains Mono', monospace;">暂未检索到更新内容，请点击“重新检查”</div>
+        </div>
+
+        <!-- 升级中状态遮罩 / 进度显示 -->
+        <div id="update-progress-area" style="display:none; margin-bottom:1rem; padding:0.85rem; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:8px;">
+          <div style="display:flex; align-items:center; gap:0.6rem; color:#a5b4fc; font-size:0.88rem; font-weight:600;">
+            <span class="spinner" style="display:inline-block; width:16px; height:16px; border:2px solid #a5b4fc; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+            <span id="update-progress-text">正在从 GitHub 拉取最新二进制并校验...</span>
+          </div>
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.35rem;">
+            下载完成后将自动原子覆盖并平滑自重启，请稍候不要关闭页面。
+          </div>
+        </div>
+
+        <!-- 底部设置与操作按钮 -->
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem;">
+          <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.8rem; color:var(--text-muted); cursor:pointer; user-select:none;" title="通过 ghproxy.net 加速镜像下载 GitHub Releases 资源，适合国内软路由环境">
+            <input type="checkbox" id="update-mirror-checkbox" checked style="accent-color:#6366f1; width:15px; height:15px; cursor:pointer;">
+            <span>使用加速镜像下载 (国内推荐)</span>
+          </label>
+          <div style="display:flex; gap:0.6rem;">
+            <button class="btn btn-outline btn-sm" id="btn-recheck-update" onclick="manualCheckUpdate()" style="min-width:80px; justify-content:center;">
+              🔄 重新检查
+            </button>
+            <button class="btn btn-primary btn-sm admin-btn" id="btn-apply-update" onclick="applyUpdateAction()" style="min-width:120px; justify-content:center;" disabled>
+              🚀 立即下载并更新
+            </button>
+          </div>
         </div>
       </div>
     </div>
