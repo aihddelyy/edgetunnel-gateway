@@ -578,8 +578,8 @@
         </div>
       </div>
     </div>
-    <!-- 页面级通用二次确认模态弹窗 (Custom Confirm Modal) -->
-    <div id="custom-confirm-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.78); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:10000; align-items:center; justify-content:center; padding:1.25rem;">
+    <!-- 页面级通用二次确认模态弹窗 (Custom Confirm Modal) - 最高层级 z-index:20000 确保浮于任何弹窗之上 -->
+    <div id="custom-confirm-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.78); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:20000; align-items:center; justify-content:center; padding:1.25rem;">
       <div class="card" style="width:100%; max-width:440px; box-shadow:0 25px 60px rgba(0,0,0,0.8); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.25s ease; padding: 1.5rem;">
         <div style="display:flex; align-items:flex-start; gap:0.9rem; margin-bottom:1.2rem;">
           <div id="custom-confirm-icon" style="width:42px; height:42px; border-radius:10px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; display:flex; align-items:center; justify-content:center; font-size:1.4rem; flex-shrink:0;">
@@ -601,7 +601,7 @@
 
     <!-- 🚀 在线检查更新与原子平滑升级模态弹窗 (Update Modal) -->
     <div id="update-modal" style="display:none; position:fixed; inset:0; background:rgba(11,15,25,0.85); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); z-index:10001; align-items:center; justify-content:center; padding:1.25rem;">
-      <div class="card" style="width:100%; max-width:540px; box-shadow:0 25px 60px rgba(0,0,0,0.85); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.25s ease; padding: 1.5rem; max-height:90vh; display:flex; flex-direction:column;">
+      <div class="card" style="width:100%; max-width:560px; box-shadow:0 25px 60px rgba(0,0,0,0.85); border:1px solid rgba(255,255,255,0.15); animation:slideUp 0.25s ease; padding: 1.5rem; max-height:90vh; display:flex; flex-direction:column;">
         <!-- 弹窗标题栏 -->
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.2rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.75rem;">
           <div style="display:flex; align-items:center; gap:0.6rem;">
@@ -644,17 +644,48 @@
             <span>📝 本次更新日志 (Release Notes)</span>
             <span id="update-release-date" style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;"></span>
           </div>
-          <div id="update-notes-box" style="flex:1; min-height:120px; max-height:220px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem; font-size:0.82rem; line-height:1.6; color:#cbd5e1; white-space:pre-wrap; word-break:break-word; font-family:'JetBrains Mono', monospace;">暂未检索到更新内容，请点击“重新检查”</div>
+          <div id="update-notes-box" style="flex:1; min-height:100px; max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem; font-size:0.82rem; line-height:1.6; color:#cbd5e1; white-space:pre-wrap; word-break:break-word; font-family:'JetBrains Mono', monospace;">暂未检索到更新内容，请点击“重新检查”</div>
         </div>
 
-        <!-- 升级中状态遮罩 / 进度显示 -->
-        <div id="update-progress-area" style="display:none; margin-bottom:1rem; padding:0.85rem; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:8px;">
-          <div style="display:flex; align-items:center; gap:0.6rem; color:#a5b4fc; font-size:0.88rem; font-weight:600;">
-            <span class="spinner" style="display:inline-block; width:16px; height:16px; border:2px solid #a5b4fc; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
-            <span id="update-progress-text">正在从 GitHub 拉取最新二进制并校验...</span>
+        <!-- 🚀 升级中实时可视化进度条面板 (流光进度、百分比、实时网速与 4 步骤流程) -->
+        <div id="update-progress-area" style="display:none; margin-bottom:1rem; padding:1rem; background:rgba(15,23,42,0.85); border:1px solid rgba(99,102,241,0.35); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+          <!-- 顶部状态与实时指标 -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.6rem; flex-wrap:wrap; gap:0.5rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; color:#f1f5f9; font-size:0.88rem; font-weight:600;">
+              <span id="update-spinner" class="spinner" style="display:inline-block; width:15px; height:15px; border:2px solid #818cf8; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+              <span id="update-progress-text">正在启动下载与更新引擎...</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <span id="update-speed-badge" style="font-family:'JetBrains Mono',monospace; font-size:0.75rem; background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.35); padding:1px 7px; border-radius:4px;">0.0 KB/s</span>
+              <span id="update-percent-badge" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:700; color:#38bdf8;">0%</span>
+            </div>
           </div>
-          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.35rem;">
-            下载完成后将自动原子覆盖并平滑自重启，请稍候不要关闭页面。
+
+          <!-- 现代高科技流光进度条 -->
+          <div style="width:100%; height:10px; background:rgba(0,0,0,0.5); border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,0.1); position:relative;">
+            <div id="update-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg, #6366f1 0%, #38bdf8 50%, #34d399 100%); border-radius:5px; transition:width 0.25s ease; box-shadow:0 0 10px rgba(56,189,248,0.5);"></div>
+          </div>
+
+          <!-- 进度详细数据说明 -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:0.45rem; font-size:0.75rem; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">
+            <span id="update-detail-msg" style="color:#94a3b8;">正在连接 GitHub Release 资产...</span>
+            <span id="update-bytes-badge" style="color:#cbd5e1;">0 B / 0 B</span>
+          </div>
+
+          <!-- 4 阶段步骤指引卡片 -->
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.4rem; margin-top:0.75rem; padding-top:0.65rem; border-top:1px solid rgba(255,255,255,0.06); text-align:center;">
+            <div id="step-download" style="padding:4px 2px; border-radius:6px; background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); font-size:0.72rem; transition:all 0.3s ease;">
+              ① 固件下载
+            </div>
+            <div id="step-verify" style="padding:4px 2px; border-radius:6px; background:rgba(255,255,255,0.04); color:var(--text-muted); border:1px solid rgba(255,255,255,0.06); font-size:0.72rem; transition:all 0.3s ease;">
+              ② 格式校验
+            </div>
+            <div id="step-replace" style="padding:4px 2px; border-radius:6px; background:rgba(255,255,255,0.04); color:var(--text-muted); border:1px solid rgba(255,255,255,0.06); font-size:0.72rem; transition:all 0.3s ease;">
+              ③ 原子替换
+            </div>
+            <div id="step-restart" style="padding:4px 2px; border-radius:6px; background:rgba(255,255,255,0.04); color:var(--text-muted); border:1px solid rgba(255,255,255,0.06); font-size:0.72rem; transition:all 0.3s ease;">
+              ④ 自启动
+            </div>
           </div>
         </div>
 

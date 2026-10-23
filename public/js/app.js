@@ -2505,6 +2505,43 @@ function renderSubAccountsCards(accounts) {
     }
     window.manualCheckUpdate = () => checkUpdate(false);
 
+    // 辅助: 格式化存储大小
+    function formatUpdateBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + ' ' + sizes[i];
+    }
+
+    // 辅助: 设置更新步骤条高亮与完成状态
+    function setUpdateStepActive(activeStepId, completedStepIds = []) {
+      const steps = ['step-download', 'step-verify', 'step-replace', 'step-restart'];
+      steps.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (completedStepIds.includes(id)) {
+          el.style.background = 'rgba(16, 185, 129, 0.2)';
+          el.style.color = '#34d399';
+          el.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+          el.style.fontWeight = '600';
+          el.style.boxShadow = 'none';
+        } else if (id === activeStepId) {
+          el.style.background = 'rgba(99, 102, 241, 0.28)';
+          el.style.color = '#e0e7ff';
+          el.style.borderColor = '#818cf8';
+          el.style.fontWeight = '700';
+          el.style.boxShadow = '0 0 10px rgba(99, 102, 241, 0.4)';
+        } else {
+          el.style.background = 'rgba(255, 255, 255, 0.04)';
+          el.style.color = 'var(--text-muted)';
+          el.style.borderColor = 'rgba(255, 255, 255, 0.06)';
+          el.style.fontWeight = 'normal';
+          el.style.boxShadow = 'none';
+        }
+      });
+    }
+
     async function applyUpdateAction() {
       if (isApplyingUpdate) return;
       if (!latestUpdateInfo) {
@@ -2515,7 +2552,7 @@ function renderSubAccountsCards(accounts) {
       const isMirror = document.getElementById('update-mirror-checkbox')?.checked ?? true;
       const targetVer = latestUpdateInfo.latestVersion || '最新版';
       const ok = await showConfirm(
-        `确定要下载并更新至 ${targetVer} 吗？\n\n系统将自动通过 ${isMirror ? '加速镜像源' : 'GitHub 官方源'} 下载二进制、校验完整性并完成原子替换与平滑重启。`,
+        `确定要下载并更新至 ${targetVer} 吗？\n\n系统将自动通过 ${isMirror ? '加速镜像源' : 'GitHub 官方源'} 下载二进制、校验完整性并完成原子替换与平滑自重启。`,
         {
           title: '确认在线更新',
           confirmText: '立即更新',
@@ -2527,16 +2564,34 @@ function renderSubAccountsCards(accounts) {
       isApplyingUpdate = true;
       const progressArea = document.getElementById('update-progress-area');
       const progressText = document.getElementById('update-progress-text');
+      const progressBar = document.getElementById('update-progress-bar');
+      const percentBadge = document.getElementById('update-percent-badge');
+      const speedBadge = document.getElementById('update-speed-badge');
+      const bytesBadge = document.getElementById('update-bytes-badge');
+      const detailMsg = document.getElementById('update-detail-msg');
       const applyBtn = document.getElementById('btn-apply-update');
       const recheckBtn = document.getElementById('btn-recheck-update');
 
+      // 初始化进度展示界面
       if (progressArea) progressArea.style.display = 'block';
-      if (progressText) progressText.innerText = `正在下载 ${latestUpdateInfo.targetAsset || '新版本程序'}...`;
+      if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.style.background = 'linear-gradient(90deg, #6366f1 0%, #38bdf8 50%, #34d399 100%)';
+      }
+      if (percentBadge) percentBadge.innerText = '0%';
+      if (speedBadge) speedBadge.innerText = '0.0 KB/s';
+      if (bytesBadge) bytesBadge.innerText = '0 B / 0 B';
+      if (progressText) progressText.innerText = `正在下载 ${latestUpdateInfo.targetAsset || '最新程序'}...`;
+      if (detailMsg) detailMsg.innerText = '正在向服务器下发更新下载指令...';
+      setUpdateStepActive('step-download', []);
+
       if (applyBtn) {
         applyBtn.disabled = true;
-        applyBtn.innerText = '⏳ 正在下载更新...';
+        applyBtn.innerText = '⏳ 正在执行更新...';
       }
       if (recheckBtn) recheckBtn.disabled = true;
+
+      let progressPollTimer = null;
 
       try {
         const res = await authFetch('/api/update/apply', {
@@ -2552,23 +2607,94 @@ function renderSubAccountsCards(accounts) {
           throw new Error(json.error || '下发更新任务失败');
         }
 
-        if (progressText) {
-          progressText.innerText = '✅ 更新包已下载，正在原子替换并平滑重启网关...';
-        }
-        showToast('🎉 更新成功！网关正在重启，将在 5 秒后自动刷新页面...');
+        // 启动高频进度轮询 (每 350ms 查询一次后端状态)
+        progressPollTimer = setInterval(async () => {
+          try {
+            const pRes = await fetch('/api/update/progress');
+            const pJson = await pRes.json();
+            if (!pJson.ok || !pJson.data) return;
 
-        let countdown = 5;
-        const countTimer = setInterval(() => {
-          countdown--;
-          if (progressText) {
-            progressText.innerText = `✅ 网关自重启就绪，将在 ${countdown} 秒后刷新页面...`;
+            const prog = pJson.data;
+
+            // 1. 更新网速与字节大小
+            if (speedBadge && prog.speedStr) {
+              speedBadge.innerText = prog.speedStr;
+            }
+            if (bytesBadge && (prog.total > 0 || prog.downloaded > 0)) {
+              bytesBadge.innerText = `${formatUpdateBytes(prog.downloaded)} / ${formatUpdateBytes(prog.total)}`;
+            }
+
+            // 2. 根据不同阶段处理
+            if (prog.state === 'downloading') {
+              setUpdateStepActive('step-download', []);
+              const pct = Math.max(1, Math.min(prog.percent || 0, 98));
+              if (progressBar) progressBar.style.width = pct + '%';
+              if (percentBadge) percentBadge.innerText = pct + '%';
+              if (progressText) progressText.innerText = `正在下载程序固件包 (${pct}%)...`;
+              if (detailMsg && prog.message) detailMsg.innerText = prog.message;
+
+            } else if (prog.state === 'verifying') {
+              setUpdateStepActive('step-verify', ['step-download']);
+              if (progressBar) progressBar.style.width = '99%';
+              if (percentBadge) percentBadge.innerText = '99%';
+              if (progressText) progressText.innerText = '正在校验固件包完整性与格式...';
+              if (detailMsg && prog.message) detailMsg.innerText = prog.message;
+
+            } else if (prog.state === 'replacing') {
+              setUpdateStepActive('step-replace', ['step-download', 'step-verify']);
+              if (progressBar) progressBar.style.width = '99%';
+              if (percentBadge) percentBadge.innerText = '99%';
+              if (progressText) progressText.innerText = '正在执行二进制原子替换...';
+              if (detailMsg && prog.message) detailMsg.innerText = prog.message;
+
+            } else if (prog.state === 'restarting') {
+              // 完成所有前置步骤，拉满 100%
+              clearInterval(progressPollTimer);
+              progressPollTimer = null;
+
+              setUpdateStepActive('step-restart', ['step-download', 'step-verify', 'step-replace', 'step-restart']);
+              if (progressBar) {
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'linear-gradient(90deg, #10b981 0%, #34d399 100%)';
+              }
+              if (percentBadge) {
+                percentBadge.innerText = '100%';
+                percentBadge.style.color = '#34d399';
+              }
+              if (speedBadge) speedBadge.innerText = '完成';
+              if (progressText) progressText.innerText = '🎉 固件替换完成，网关平滑自重启中...';
+              if (detailMsg) detailMsg.innerText = prog.message || '网关正在释放旧进程并启动新版本，将在 5 秒后自动刷新页面...';
+
+              showToast('🎉 更新成功！网关正在重启，将在 5 秒后自动刷新页面...');
+
+              let countdown = 5;
+              const countTimer = setInterval(() => {
+                countdown--;
+                if (progressText) {
+                  progressText.innerText = `✅ 网关自重启就绪，将在 ${countdown} 秒后刷新页面...`;
+                }
+                if (countdown <= 0) {
+                  clearInterval(countTimer);
+                  location.reload();
+                }
+              }, 1000);
+
+            } else if (prog.state === 'error') {
+              clearInterval(progressPollTimer);
+              progressPollTimer = null;
+              throw new Error(prog.error || prog.message || '更新过程发生异常');
+            }
+          } catch (e) {
+            // 如果是在重启阶段网关短暂断开导致 fetch 失败，属于正常现象，进入等待刷新逻辑
+            // 否则在控制台记录
           }
-          if (countdown <= 0) {
-            clearInterval(countTimer);
-            location.reload();
-          }
-        }, 1000);
+        }, 350);
+
       } catch (err) {
+        if (progressPollTimer) {
+          clearInterval(progressPollTimer);
+          progressPollTimer = null;
+        }
         isApplyingUpdate = false;
         if (progressArea) progressArea.style.display = 'none';
         if (applyBtn) {

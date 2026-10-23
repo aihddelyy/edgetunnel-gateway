@@ -366,7 +366,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Auth Guard for other administrative routes
 	isPublic := path == "/api/status" || path == "/api/prefer/ping" || path == "/api/ping-all" || path == "/api/memory/status" ||
-		path == "/api/update/check" ||
+		path == "/api/update/check" || path == "/api/update/progress" ||
 		(strings.HasPrefix(path, "/api/cf-panel/") && path != "/api/cf-panel/target")
 	if !isPublic && !s.checkAuth(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{"ok": false, "error": "请先登录以执行管理员操作"})
@@ -887,6 +887,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": res})
+		return
+	}
+
+	// Update Progress Query
+	if path == "/api/update/progress" && r.Method == http.MethodGet {
+		prog := updater.GetProgress()
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": prog})
 		return
 	}
 

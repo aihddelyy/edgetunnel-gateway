@@ -12,11 +12,43 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/version"
 )
+
+type UpdateProgress struct {
+	State       string `json:"state"`      // "idle", "downloading", "verifying", "replacing", "restarting", "error"
+	Percent     int    `json:"percent"`    // 0 - 100
+	Downloaded  int64  `json:"downloaded"` // bytes
+	Total       int64  `json:"total"`      // bytes
+	Speed       int64  `json:"speed"`      // bytes/sec
+	SpeedStr    string `json:"speedStr"`   // e.g. "2.1 MB/s"
+	Message     string `json:"message"`    // 详细提示
+	Error       string `json:"error,omitempty"`
+	UpdatedAt   int64  `json:"updatedAt"`
+}
+
+var (
+	progressMu      sync.RWMutex
+	currentProgress = UpdateProgress{State: "idle", Message: "未在执行更新"}
+)
+
+// GetProgress 获取当前更新与下载进度状态
+func GetProgress() UpdateProgress {
+	progressMu.RLock()
+	defer progressMu.RUnlock()
+	return currentProgress
+}
+
+func setProgress(p UpdateProgress) {
+	progressMu.Lock()
+	defer progressMu.Unlock()
+	p.UpdatedAt = time.Now().UnixMilli()
+	currentProgress = p
+}
 
 type ReleaseAsset struct {
 	Name        string `json:"name"`
@@ -98,13 +130,23 @@ func CheckForUpdate(proxyURL string) (*CheckResult, error) {
 // ApplyUpdate 下载目标安装包并执行原子更新与平滑自重启
 func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 	if downloadURL == "" {
-		return fmt.Errorf("下载链接不能为空")
+		err := fmt.Errorf("下载链接不能为空")
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
+
+	setProgress(UpdateProgress{
+		State:   "downloading",
+		Percent: 1,
+		Message: "正在解析下载源并建立网络连接...",
+	})
 
 	// 1. 获取当前程序执行绝对路径
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("获取当前程序路径失败: %w", err)
+		err = fmt.Errorf("获取当前程序路径失败: %w", err)
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
 	realExePath, err := filepath.EvalSymlinks(exePath)
 	if err == nil {
@@ -131,9 +173,19 @@ func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 	client := createHTTPClient(proxyURL, 10*time.Minute)
 
 	for idx, urlStr := range tryURLs {
-		logger.Infof("[Updater] 尝试第 %d/%d 个下载源: %s", idx+1, len(tryURLs), urlStr)
+		sourceLabel := "官方源"
+		if strings.Contains(urlStr, "ghproxy") || strings.Contains(urlStr, "ghfast") {
+			sourceLabel = "国内加速镜像"
+		}
+		logger.Infof("[Updater] 尝试第 %d/%d 个下载源 (%s): %s", idx+1, len(tryURLs), sourceLabel, urlStr)
 
-		err := downloadFile(client, urlStr, tmpPath)
+		setProgress(UpdateProgress{
+			State:   "downloading",
+			Percent: 2,
+			Message: fmt.Sprintf("正在连接 %s (尝试第 %d/%d 个节点)...", sourceLabel, idx+1, len(tryURLs)),
+		})
+
+		err := downloadFile(client, urlStr, tmpPath, sourceLabel)
 		if err == nil {
 			downloadSuccess = true
 			logger.Infof("[Updater] ✅ 文件下载完成并校验通过: %s", tmpPath)
@@ -145,32 +197,58 @@ func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 	}
 
 	if !downloadSuccess {
-		return fmt.Errorf("全部下载源均失败: %v", downloadErr)
+		err := fmt.Errorf("全部下载源均失败: %v", downloadErr)
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
 
-	// 3. 赋予可执行权限
+	// 3. 校验与赋予可执行权限
+	setProgress(UpdateProgress{
+		State:   "verifying",
+		Percent: 99,
+		Message: "安装包下载完成，正在校验完整性与执行权限...",
+	})
+
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("赋予新版本文件执行权限失败: %w", err)
+		err = fmt.Errorf("赋予新版本文件执行权限失败: %w", err)
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
 
 	// 4. 原子覆盖替换
+	setProgress(UpdateProgress{
+		State:   "replacing",
+		Percent: 99,
+		Message: "正在执行安全原子替换 (覆盖旧二进制文件)...",
+	})
+
 	_ = os.Remove(bakPath)
 	if err := os.Rename(exePath, bakPath); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("备份原程序失败 (可能缺少目录写入权限): %w", err)
+		err = fmt.Errorf("备份原程序失败 (可能缺少目录写入权限): %w", err)
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
 
 	if err := os.Rename(tmpPath, exePath); err != nil {
 		// 覆盖失败，立即安全回滚原程序
 		_ = os.Rename(bakPath, exePath)
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("替换新版本可执行文件失败，已自动回滚原版本: %w", err)
+		err = fmt.Errorf("替换新版本可执行文件失败，已自动回滚原版本: %w", err)
+		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
+		return err
 	}
 
 	// 替换成功，清理备份
 	_ = os.Remove(bakPath)
 	logger.Infof("🎉 [Updater] 二进制替换成功，目标路径: %s", exePath)
+
+	setProgress(UpdateProgress{
+		State:   "restarting",
+		Percent: 100,
+		Message: "🎉 新版本原子替换成功！网关正在自动热重启...",
+	})
 
 	// 5. 延迟 1 秒后触发自重启
 	go func() {
@@ -201,7 +279,48 @@ func RestartSelf() {
 	os.Exit(0)
 }
 
-func downloadFile(client *http.Client, urlStr, destPath string) error {
+type progressWriter struct {
+	writer     io.Writer
+	total      int64
+	downloaded int64
+	lastTime   time.Time
+	lastBytes  int64
+	onProgress func(downloaded, total, speed int64)
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.writer.Write(p)
+	if n > 0 {
+		pw.downloaded += int64(n)
+		now := time.Now()
+		d := now.Sub(pw.lastTime)
+		if d >= 200*time.Millisecond {
+			bytesDiff := pw.downloaded - pw.lastBytes
+			speed := int64(float64(bytesDiff) / d.Seconds())
+			pw.lastTime = now
+			pw.lastBytes = pw.downloaded
+			if pw.onProgress != nil {
+				pw.onProgress(pw.downloaded, pw.total, speed)
+			}
+		}
+	}
+	return n, err
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func downloadFile(client *http.Client, urlStr, destPath, sourceLabel string) error {
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
 		return err
@@ -224,8 +343,35 @@ func downloadFile(client *http.Client, urlStr, destPath string) error {
 	}
 	defer out.Close()
 
+	totalSize := resp.ContentLength
+	pw := &progressWriter{
+		writer:    out,
+		total:     totalSize,
+		lastTime:  time.Now(),
+		onProgress: func(downloaded, total, speed int64) {
+			pct := 0
+			if total > 0 {
+				pct = int(float64(downloaded) / float64(total) * 100)
+				if pct > 98 {
+					pct = 98
+				}
+			}
+			spStr := formatBytes(speed) + "/s"
+			msg := fmt.Sprintf("正在拉取最新程序: %s / %s (速度: %s)", formatBytes(downloaded), formatBytes(total), spStr)
+			setProgress(UpdateProgress{
+				State:      "downloading",
+				Percent:    pct,
+				Downloaded: downloaded,
+				Total:      total,
+				Speed:      speed,
+				SpeedStr:   spStr,
+				Message:    msg,
+			})
+		},
+	}
+
 	// 限制最大下载 150MB，防止异常
-	written, err := io.Copy(out, io.LimitReader(resp.Body, 150*1024*1024))
+	written, err := io.Copy(pw, io.LimitReader(resp.Body, 150*1024*1024))
 	if err != nil {
 		return err
 	}
