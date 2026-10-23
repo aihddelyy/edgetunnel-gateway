@@ -394,18 +394,31 @@ func downloadFile(client *http.Client, urlStr, destPath, sourceLabel string) err
 }
 
 func matchAsset(assets []ReleaseAsset, goos, goarch string) (name string, downloadURL string, size int64) {
-	expectedPrefix := "edgetunnel-lb-" + goos + "-" + goarch
+	// 优先匹配新版标准产物命名 (edt-gateway-linux-amd64)
+	primaryPrefix := "edt-gateway-" + goos + "-" + goarch
+	// 兼容匹配历史版本产物命名 (edgetunnel-lb-linux-amd64)
+	legacyPrefix := "edgetunnel-lb-" + goos + "-" + goarch
+
 	if goos == "windows" {
-		expectedPrefix += ".exe"
+		primaryPrefix += ".exe"
+		legacyPrefix += ".exe"
 	}
 
+	// 1. 优先精确匹配 edt-gateway
 	for _, a := range assets {
-		if a.Name == expectedPrefix {
+		if a.Name == primaryPrefix {
 			return a.Name, a.DownloadURL, a.Size
 		}
 	}
 
-	// 如果没有严格全字匹配，退而求其次匹配包含关系
+	// 2. 兼容精确匹配 edgetunnel-lb
+	for _, a := range assets {
+		if a.Name == legacyPrefix {
+			return a.Name, a.DownloadURL, a.Size
+		}
+	}
+
+	// 3. 宽松模糊匹配 (包含平台与架构，排除压缩包)
 	for _, a := range assets {
 		lower := strings.ToLower(a.Name)
 		if strings.Contains(lower, goos) && strings.Contains(lower, goarch) && !strings.HasSuffix(lower, ".tar.gz") && !strings.HasSuffix(lower, ".zip") {

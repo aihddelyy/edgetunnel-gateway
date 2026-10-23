@@ -1,5 +1,20 @@
 # 变更日志 (CHANGELOG)
 
+## [v1.0.6] - 2026-10-23
+
+### 📦 编译与发布产物全面更名为 `edt-gateway` 并实现双向平滑兼容
+- **产物命名规范化**：
+  - Linux AMD64 二进制：`edt-gateway-linux-amd64`
+  - Linux ARM64 二进制：`edt-gateway-linux-arm64`
+  - 压缩归档包同步更名为 `edt-gateway-linux-*.tar.gz`
+- **双向平滑自动更新兼容机制**：
+  - 更新匹配引擎 (`matchAsset`) 首选匹配新规范 `edt-gateway-{os}-{arch}`，同时无缝兼容历史版本 `edgetunnel-lb-{os}-{arch}`。
+  - 老版本已运行网关的宽松匹配逻辑可直接识别并下载新版 `edt-gateway` 产物，覆盖当前运行的可执行文件，实现零感知无损跨版本平滑升级。
+- **文档与自动化流水线同步**：
+  - GitHub Actions 流水线、交叉编译脚本 `build.ps1`、快速运行指南及配置说明全部同步更新。
+
+---
+
 ## [v1.0.5] - 2026-10-23
 
 ### 🛠️ 深度修复 Linux / OpenWrt 下自重启拉起新进程失败的隐蔽缺陷

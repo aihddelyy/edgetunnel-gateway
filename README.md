@@ -66,8 +66,8 @@ go_version/
 ```
 
 编译产物：
-- `edgetunnel-lb-linux-amd64`：适用于主流 x86 软路由、PVE、ESXi、群晖 NAS、常规 VPS。
-- `edgetunnel-lb-linux-arm64`：适用于 NanoPi R4S/R5S、斐讯 N1、树莓派等 ARM 架构。
+- `edt-gateway-linux-amd64`：适用于主流 x86 软路由、PVE、ESXi、群晖 NAS、常规 VPS。
+- `edt-gateway-linux-arm64`：适用于 NanoPi R4S/R5S、斐讯 N1、树莓派等 ARM 架构。
 
 ---
 
@@ -82,16 +82,16 @@ cd /root/edgetunnel-lb
 cp config.example.json config.json
 
 # 赋予可执行权限
-chmod +x edgetunnel-lb-linux-amd64
+chmod +x edt-gateway-linux-amd64
 
 # 后台启动
-nohup ./edgetunnel-lb-linux-amd64 -config config.json > app.log 2>&1 &
+nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
 ```
 
 #### 开机自启动（OpenWrt 系统）
 在 `/etc/rc.local` 中添加（位于 `exit 0` 之前）：
 ```bash
-cd /root/edgetunnel-lb && nohup ./edgetunnel-lb-linux-amd64 -config config.json > app.log 2>&1 &
+cd /root/edgetunnel-lb && nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
 ```
 
 ---

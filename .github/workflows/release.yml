@@ -38,19 +38,19 @@ jobs:
 
       - name: Build Linux AMD64 Binary
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o edgetunnel-lb-linux-amd64 ./cmd/server
-          chmod +x edgetunnel-lb-linux-amd64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o edt-gateway-linux-amd64 ./cmd/server
+          chmod +x edt-gateway-linux-amd64
 
       - name: Build Linux ARM64 Binary
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o edgetunnel-lb-linux-arm64 ./cmd/server
-          chmod +x edgetunnel-lb-linux-arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o edt-gateway-linux-arm64 ./cmd/server
+          chmod +x edt-gateway-linux-arm64
 
       - name: Generate SHA256 Checksums & Archive
         run: |
-          tar -czvf edgetunnel-lb-linux-amd64.tar.gz edgetunnel-lb-linux-amd64 config.example.json
-          tar -czvf edgetunnel-lb-linux-arm64.tar.gz edgetunnel-lb-linux-arm64 config.example.json
-          sha256sum edgetunnel-lb-linux-amd64 edgetunnel-lb-linux-arm64 edgetunnel-lb-linux-amd64.tar.gz edgetunnel-lb-linux-arm64.tar.gz > sha256sums.txt
+          tar -czvf edt-gateway-linux-amd64.tar.gz edt-gateway-linux-amd64 config.example.json
+          tar -czvf edt-gateway-linux-arm64.tar.gz edt-gateway-linux-arm64 config.example.json
+          sha256sum edt-gateway-linux-amd64 edt-gateway-linux-arm64 edt-gateway-linux-amd64.tar.gz edt-gateway-linux-arm64.tar.gz > sha256sums.txt
 
       - name: Determine Tag Name
         id: vars
@@ -62,14 +62,14 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "title=EdgeTunnel LB Release $TAG" >> $GITHUB_OUTPUT
+          echo "title=edt-gateway Release $TAG" >> $GITHUB_OUTPUT
 
       - name: Prepare Release Notes
         run: |
           TAG="${{ steps.vars.outputs.tag }}"
           CLEAN_VER="${TAG#v}"
 
-          echo "### 🚀 EdgeTunnel LB (Go 高性能单文件独立版) $TAG" > release_body.md
+          echo "### 🚀 edt-gateway (高性能单文件独立网关) $TAG" > release_body.md
           echo "" >> release_body.md
           echo "纯 Go 单文件极速独立版，零外部依赖（无需 Node.js / Docker），内存占用仅 ~15MB，原生支持 OpenWrt 软路由与群晖 NAS。" >> release_body.md
           echo "" >> release_body.md
@@ -85,17 +85,17 @@ jobs:
 
           cat << 'EOF' >> release_body.md
           #### 📦 发布文件
-          - `edgetunnel-lb-linux-amd64`：适用于 x86 软路由、群晖 NAS、常规 VPS/服务器
-          - `edgetunnel-lb-linux-arm64`：适用于 ARM 架构软路由（NanoPi R4S/R5S、斐讯 N1、树莓派等）
+          - `edt-gateway-linux-amd64`：适用于 x86 软路由、群晖 NAS、常规 VPS/服务器
+          - `edt-gateway-linux-arm64`：适用于 ARM 架构软路由（NanoPi R4S/R5S、斐讯 N1、树莓派等）
           - `*.tar.gz`：包含二进制与配置文件模板的压缩包
           - `sha256sums.txt`：文件 SHA256 完整性校验值
 
           #### 快速运行说明
           ```bash
           # 下载并赋权
-          chmod +x edgetunnel-lb-linux-amd64
+          chmod +x edt-gateway-linux-amd64
           # 配合 config.json 后台运行
-          nohup ./edgetunnel-lb-linux-amd64 -config config.json > app.log 2>&1 &
+          nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
           ```
           EOF
 
@@ -109,8 +109,8 @@ jobs:
           generate_release_notes: true
           body_path: release_body.md
           files: |
-            edgetunnel-lb-linux-amd64
-            edgetunnel-lb-linux-arm64
-            edgetunnel-lb-linux-amd64.tar.gz
-            edgetunnel-lb-linux-arm64.tar.gz
+            edt-gateway-linux-amd64
+            edt-gateway-linux-arm64
+            edt-gateway-linux-amd64.tar.gz
+            edt-gateway-linux-arm64.tar.gz
             sha256sums.txt

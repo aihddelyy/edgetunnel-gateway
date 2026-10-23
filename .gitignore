@@ -1,4 +1,5 @@
 # Go binaries
+edt-gateway*
 edgetunnel-lb*
 *.exe
 *.exe~
