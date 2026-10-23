@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -196,22 +195,8 @@ func RestartSelf() {
 	}
 
 	args := os.Args[1:]
-	if runtime.GOOS == "windows" {
-		cmdStr := fmt.Sprintf("timeout /t 1 /nobreak >nul & start \"\" \"%s\"", exe)
-		for _, a := range args {
-			cmdStr += fmt.Sprintf(" \"%s\"", a)
-		}
-		_ = exec.Command("cmd.exe", "/c", cmdStr).Start()
-	} else {
-		// Linux / OpenWrt: 切换到可执行文件所在物理目录，延迟 1 秒释放端口后后台自启动
-		cmdArgs := ""
-		for _, a := range args {
-			cmdArgs += fmt.Sprintf(" '%s'", a)
-		}
-		exeDir := filepath.Dir(exe)
-		logPath := filepath.Join(exeDir, "app.log")
-		shCmd := fmt.Sprintf("sleep 1 && cd '%s' && nohup '%s'%s >> '%s' 2>&1 &", exeDir, exe, cmdArgs, logPath)
-		_ = exec.Command("/bin/sh", "-c", shCmd).Start()
+	if err := runRestartProcess(exe, args); err != nil {
+		logger.Errorf("[Restart] 启动自重启后台任务失败: %v", err)
 	}
 	os.Exit(0)
 }
