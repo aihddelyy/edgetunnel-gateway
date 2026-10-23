@@ -522,9 +522,10 @@ let isPausedLog = false;
 
         const clientsStr = (n.clients && n.clients.length > 0)
           ? n.clients.map(c => `<code style="font-size:0.72rem; background:rgba(255,255,255,0.05); padding:1px 4px; border-radius:3px;">${escapeHtml(c)}</code>`).join(' ')
-          : '<span style="color:var(--text-muted);">网关自身</span>';
+          : '<span style="color:var(--text-muted);">暂无记录</span>';
 
-        const reqCount = (n.requestCount || 0).toLocaleString();
+        const totalReqs = n.requestCount !== undefined ? n.requestCount : ((n.successReqs || 0) + (n.failReqs || 0));
+        const reqCount = (totalReqs || 0).toLocaleString();
 
         const btnDefault = isDefault
           ? `<span style="font-size:0.75rem; color:var(--text-muted); padding:0.2rem 0.4rem;">[当前兜底]</span>`

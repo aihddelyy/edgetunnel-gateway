@@ -584,7 +584,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				defer wg.Done()
 				res := prefer.PingTarget(target, 3500*time.Millisecond)
 				results[idx] = res
-				s.preferMgr.RecordActivity(target, res.Latency, res.Status, "测速Ping")
+				s.preferMgr.RecordPing(target, res.Latency, res.Status, "测速Ping")
 			}(i, t)
 		}
 		wg.Wait()
@@ -610,7 +610,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		_ = s.cfgMgr.Update(func(cfg *model.Config) {
 			cfg.DefaultPrefer = target
 		})
-		s.preferMgr.RecordActivity(target, 0, "ok", "设为默认优选", true)
+		s.preferMgr.SetDefaultTarget(target)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "defaultPrefer": target, "nodes": s.preferMgr.GetNodesList()})
 		return
 	}

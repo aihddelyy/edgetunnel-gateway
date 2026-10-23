@@ -159,7 +159,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 	connectHost, connectPort := prefer.ParseTargetHostPort(targetServer)
 
 	clientTag := r.RemoteAddr
-	g.preferMgr.RecordActivity(targetServer, 0, "ok", protoLabel)
+	g.preferMgr.RecordRequest(targetServer, clientTag)
 
 	// 非阻塞读取客户端握手首包（VLESS / XHTTP 握手数据，通常 200~500 字节，严禁 LimitReader 堵塞）
 	firstBufPtr := GetBuffer32k()
@@ -255,6 +255,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 				g.healthMgr.MarkBackendFailure(backendSni, err.Error())
 			}
 			logger.Warnf("[XHTTP 传输异常 #%s -> %s]: %v", clientTag, backendSni, err)
+			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
 			continue
 		}
 
@@ -270,7 +271,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		// 握手成功！
 		elapsed := int(time.Since(startTime).Milliseconds())
 		g.healthMgr.MarkBackendSuccess(backendSni)
-		g.preferMgr.RecordActivity(targetServer, elapsed, "ok", fmt.Sprintf("HTTP %d", resp.StatusCode))
+		g.preferMgr.RecordResponse(targetServer, elapsed, "ok", fmt.Sprintf("HTTP %d", resp.StatusCode))
 		logger.Infof("[%s #%s] ✅ 握手成功: 状态码 %d (耗时: %dms) | 实际 Server: %s:%d | SNI: %s",
 			protoLabel, clientTag, resp.StatusCode, elapsed, connectHost, connectPort, backendSni)
 

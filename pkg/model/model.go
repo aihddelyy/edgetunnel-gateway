@@ -90,18 +90,20 @@ type HealthState struct {
 
 // PreferNode records status and metrics of a preferred IP/host
 type PreferNode struct {
-	Target       string  `json:"target"`
-	Host         string  `json:"host"`
-	Port         int     `json:"port"`
-	IsDefault    bool    `json:"isDefault"`
-	ActiveConns  int     `json:"activeConns"`
-	SuccessReqs  int     `json:"successReqs"`
-	FailReqs     int     `json:"failReqs"`
-	LastLatency  int     `json:"lastLatency"` // in ms
-	LastStatus   string  `json:"lastStatus"`  // "ok", "warn", "error"
-	LastReason   string  `json:"lastReason"`
-	LastSeen     int64   `json:"lastSeen"`
-	LastSeenTime string  `json:"lastSeenTime"`
+	Target       string   `json:"target"`
+	Host         string   `json:"host"`
+	Port         int      `json:"port"`
+	IsDefault    bool     `json:"isDefault"`
+	RequestCount int64    `json:"requestCount"` // 累计总请求数
+	ActiveConns  int      `json:"activeConns"`
+	SuccessReqs  int      `json:"successReqs"`
+	FailReqs     int      `json:"failReqs"`
+	LastLatency  int      `json:"lastLatency"` // in ms
+	LastStatus   string   `json:"lastStatus"`  // "ok", "warn", "error"
+	LastReason   string   `json:"lastReason"`
+	LastSeen     int64    `json:"lastSeen"`
+	LastSeenTime string   `json:"lastSeenTime"`
+	Clients      []string `json:"clients"` // 来源客户端 IP 列表
 }
 
 // CFAccountBrief holds subaccount quota information

@@ -92,7 +92,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 	connectHost, connectPort := prefer.ParseTargetHostPort(targetServer)
 
 	clientTag := r.RemoteAddr
-	g.preferMgr.RecordActivity(targetServer, 0, "ok", "WS连接握手")
+	g.preferMgr.RecordRequest(targetServer, clientTag)
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -168,7 +168,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		rawRemote, err := dialer.Dial("tcp", targetAddr)
 		if err != nil {
 			logger.Warnf("[WS 优选链路连接失败 #%s -> %s]: %v", clientTag, targetAddr, err)
-			g.preferMgr.RecordActivity(targetServer, 0, "error", err.Error())
+			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
 			continue
 		}
 
@@ -216,7 +216,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		_ = remoteConn.SetDeadline(time.Time{})
 		elapsed := int(time.Since(startTime).Milliseconds())
 		g.healthMgr.MarkBackendSuccess(backendSni)
-		g.preferMgr.RecordActivity(targetServer, elapsed, "ok", "WS握手成功")
+		g.preferMgr.RecordResponse(targetServer, elapsed, "ok", "WS握手成功")
 		logger.Infof("[WS/Upgrade #%s] ✅ 握手成功: 101 Switching Protocols (耗时: %dms) | 实际 Server: %s:%d | SNI: %s",
 			clientTag, elapsed, connectHost, connectPort, backendSni)
 

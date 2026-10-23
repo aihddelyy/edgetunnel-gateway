@@ -32,7 +32,7 @@ func InitPreferManager(cfgMgr *config.Manager) *Manager {
 
 	cfg := cfgMgr.Get()
 	if cfg.DefaultPrefer != "" {
-		m.RecordActivity(cfg.DefaultPrefer, 0, "ok", "系统启动初始化", true)
+		m.SetDefaultTarget(cfg.DefaultPrefer)
 	}
 
 	return m
@@ -125,24 +125,17 @@ func ParsePreferAndCleanPath(rawPath string, defaultPrefer string) (string, stri
 	return target, cleaned
 }
 
-func (m *Manager) RecordActivity(target string, latencyMs int, status, reason string, isDefault ...bool) {
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return
-	}
-
+func (m *Manager) getOrCreateNodeLocked(target string, isDefault ...bool) (*model.PreferNode, string) {
 	host, port := ParseTargetHostPort(target)
 	key := fmt.Sprintf("%s:%d", host, port)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	node, exists := m.nodes[key]
 	if !exists {
 		node = &model.PreferNode{
-			Target: target,
-			Host:   host,
-			Port:   port,
+			Target:  target,
+			Host:    host,
+			Port:    port,
+			Clients: make([]string, 0, 5),
 		}
 		m.nodes[key] = node
 	}
@@ -150,6 +143,143 @@ func (m *Manager) RecordActivity(target string, latencyMs int, status, reason st
 	if len(isDefault) > 0 && isDefault[0] {
 		node.IsDefault = true
 	}
+	return node, key
+}
+
+// RecordRequest 记录真实客户端入站请求（累加请求计数，记录来源客户端 IP 与活跃时间）
+func (m *Manager) RecordRequest(target string, clientIP string, isDefault ...bool) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	node, _ := m.getOrCreateNodeLocked(target, isDefault...)
+	node.RequestCount++
+
+	now := time.Now()
+	node.LastSeen = now.UnixMilli()
+	node.LastSeenTime = now.Format("15:04:05")
+
+	// 处理客户端来源 IP（去端口、去重、最多保留 5 个最近活跃设备）
+	if clientIP != "" {
+		pureIP := clientIP
+		if h, _, err := net.SplitHostPort(clientIP); err == nil {
+			pureIP = h
+		}
+		pureIP = strings.TrimSpace(pureIP)
+		if pureIP != "" && pureIP != "127.0.0.1" && pureIP != "::1" && pureIP != "localhost" {
+			found := false
+			for _, c := range node.Clients {
+				if c == pureIP {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if len(node.Clients) >= 5 {
+					node.Clients = node.Clients[1:]
+				}
+				node.Clients = append(node.Clients, pureIP)
+			}
+		}
+	}
+}
+
+// RecordResponse 记录请求返回状态与延迟
+func (m *Manager) RecordResponse(target string, latencyMs int, status, reason string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	node, _ := m.getOrCreateNodeLocked(target)
+	now := time.Now()
+	node.LastSeen = now.UnixMilli()
+	node.LastSeenTime = now.Format("15:04:05")
+
+	if latencyMs > 0 {
+		node.LastLatency = latencyMs
+	}
+	if status != "" {
+		node.LastStatus = status
+	}
+	if reason != "" {
+		node.LastReason = reason
+	}
+
+	switch status {
+	case "ok":
+		node.SuccessReqs++
+	case "error":
+		node.FailReqs++
+	}
+}
+
+// RecordPing 记录测速结果 (仅更新延迟与连通状态，绝不计入业务请求数)
+func (m *Manager) RecordPing(target string, latencyMs int, status, reason string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	node, _ := m.getOrCreateNodeLocked(target)
+	if latencyMs > 0 {
+		node.LastLatency = latencyMs
+	}
+	if status != "" {
+		node.LastStatus = status
+	}
+	if reason != "" {
+		node.LastReason = reason
+	}
+}
+
+// SetDefaultTarget 切换或标记默认兜底节点
+func (m *Manager) SetDefaultTarget(target string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	host, port := ParseTargetHostPort(target)
+	newDefKey := fmt.Sprintf("%s:%d", host, port)
+
+	for k, n := range m.nodes {
+		if k == newDefKey {
+			n.IsDefault = true
+		} else {
+			n.IsDefault = false
+		}
+	}
+
+	node, _ := m.getOrCreateNodeLocked(target, true)
+	node.IsDefault = true
+}
+
+// RecordActivity 兼容旧接口
+func (m *Manager) RecordActivity(target string, latencyMs int, status, reason string, isDefault ...bool) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	node, _ := m.getOrCreateNodeLocked(target, isDefault...)
+	node.RequestCount++
 
 	now := time.Now()
 	node.LastSeen = now.UnixMilli()
