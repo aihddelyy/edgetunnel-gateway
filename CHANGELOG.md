@@ -1,5 +1,18 @@
 # 变更日志 (CHANGELOG)
 
+## [v1.0.3] - 2026-10-23
+
+### 🛠️ 彻底修复 OpenWrt / Busybox 环境下自重启失败的缺陷
+- **去除 nohup 命令依赖**：
+  - OpenWrt 精简固件默认无 `nohup` 工具。改用标准 POSIX 子 Shell 后台派生语法 `(sleep 2; cd ...; exe ...) </dev/null >/dev/null 2>&1 &`，100% 兼容所有 Linux 及 BusyBox ash。
+- **独立 Session 与孤儿进程托管**：
+  - 启动子进程时引入 `syscall.SysProcAttr{Setsid: true}`，使新进程彻底脱离父会话组成为 Session Leader，防止旧进程退出时派发 SIGHUP 导致新进程夭折。
+- **端口释放等待与参数保护**：
+  - 自重启延迟等待时间延长至 2 秒，确保操作系统彻底回收 `8787/8788/8789` 监听端口，彻底杜绝 `address already in use` 启动冲突。
+  - 启动命令参数自动转换为绝对路径，避免工作目录切换导致找不到配置文件。
+
+---
+
 ## [v1.0.2] - 2026-10-23
 
 ### 🚀 新增在线版本查询、一键下载更新与自动平滑重启
