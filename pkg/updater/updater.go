@@ -250,29 +250,38 @@ func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 		Message: "🎉 新版本原子替换成功！网关正在自动热重启...",
 	})
 
-	// 5. 延迟 1 秒后触发自重启
+	// 5. 延迟 1 秒后触发自重启 (传入已覆盖好的新可执行文件绝对路径)
 	go func() {
 		time.Sleep(1 * time.Second)
-		logger.Infof("🚀 [Updater] 正在拉起新版本进程并安全平滑退出...")
-		RestartSelf()
+		logger.Infof("🚀 [Updater] 正在拉起新版本进程 (%s) 并平滑退出旧版本...", exePath)
+		RestartExe(exePath, os.Args[1:])
 	}()
 
 	return nil
 }
 
-// RestartSelf 统一重启网关进程
+// RestartSelf 统一重启网关当前进程
 func RestartSelf() {
-	exe, err := os.Executable()
-	if err != nil {
-		logger.Errorf("[Restart] 获取程序路径失败: %v", err)
-		os.Exit(1)
-	}
-	realExe, err := filepath.EvalSymlinks(exe)
-	if err == nil {
-		exe = realExe
-	}
+	RestartExe("", os.Args[1:])
+}
 
-	args := os.Args[1:]
+// RestartExe 重启指定绝对路径的可执行文件 (若为空则自动探测)
+func RestartExe(targetExe string, args []string) {
+	exe := targetExe
+	if exe == "" {
+		var err error
+		exe, err = os.Executable()
+		if err != nil {
+			logger.Errorf("[Restart] 获取程序路径失败: %v", err)
+			os.Exit(1)
+		}
+		if realExe, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = realExe
+		}
+	}
+	// 去除 Linux 下旧进程被 unlink 后带有的 " (deleted)" 标记
+	exe = strings.TrimSuffix(strings.TrimSpace(exe), " (deleted)")
+
 	if err := runRestartProcess(exe, args); err != nil {
 		logger.Errorf("[Restart] 启动自重启后台任务失败: %v", err)
 	}
