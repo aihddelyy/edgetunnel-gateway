@@ -869,7 +869,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		timeStr := time.Now().Format("2006-01-02 15:04:05")
-		msg := fmt.Sprintf("🔔 *【EdgeTunnel 本地分流网关测试通知】*\n\n✅ 恭喜！网关与 Telegram Bot 通道测试握手成功。\n⏰ 发送时间: %s", timeStr)
+		msg := fmt.Sprintf("🔔 *【edt-gateway 本地分流网关测试通知】*\n\n✅ 恭喜！网关与 Telegram Bot 通道测试握手成功。\n⏰ 发送时间: %s", timeStr)
 		if err := sender.SendRawText(msg); err != nil {
 			writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": err.Error()})
 			return

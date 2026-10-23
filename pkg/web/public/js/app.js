@@ -178,7 +178,7 @@ let isPausedLog = false;
       if (needSetup) {
         if (icon) icon.innerText = '🚀';
         if (title) title.innerText = '首次启动 - 设置管理员密码';
-        if (subtitle) subtitle.innerText = '欢迎使用 EdgeTunnel LB 分流网关！请先为控制台初始化账号与密码以确保安全。';
+        if (subtitle) subtitle.innerText = '欢迎使用 edt-gateway 分流网关！请先为控制台初始化账号与密码以确保安全。';
         if (confirmGroup) confirmGroup.style.display = 'block';
         if (submitBtn) submitBtn.innerText = '完成设置并进入控制台';
       } else {

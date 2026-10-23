@@ -85,12 +85,12 @@ func main() {
 	_ = xhttpGW.Close()
 	_ = webServer.Close()
 
-	logger.Infof("EdgeTunnel 分流网关已完全退出。")
+	logger.Infof("edt-gateway 分流网关已完全退出。")
 }
 
 func printBanner(cfg model.Config) {
 	fmt.Println("============================================================")
-	fmt.Printf("🚀 EdgeTunnel 本地分流网关 [Go 高性能版] (PID: %d)\n", os.Getpid())
+	fmt.Printf("🚀 edt-gateway 本地分流网关 [Go 高性能版] (PID: %d)\n", os.Getpid())
 	fmt.Printf("   💻 CPU 核心调度: %d 逻辑核心并发 (原生 Goroutine 并发调度)\n", runtime.NumCPU())
 	fmt.Printf("   🌐 8787 端口: WebSocket Upgrade 网关 (Pages 后端: %d 个)\n", len(cfg.PagesBackends))
 	fmt.Printf("   ⚡ 8788 端口: XHTTP 嗅探双模网关 (Worker 后端: %d 个)\n", len(cfg.WorkerBackends))

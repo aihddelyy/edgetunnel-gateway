@@ -123,7 +123,7 @@ func (s *TelegramSender) SendCircuitAlert(backend, reason string) {
 	}
 
 	timeStr := time.Now().Format("2006-01-02 15:04:05")
-	msg := fmt.Sprintf("⚠️ *【EdgeTunnel LB 节点熔断告警】*\n\n"+
+	msg := fmt.Sprintf("⚠️ *【edt-gateway 节点熔断告警】*\n\n"+
 		"• *故障节点*: `%s`\n"+
 		"• *触发原因*: `%s`\n"+
 		"• *告警时间*: `%s`\n"+

@@ -1,12 +1,12 @@
-# EdgeTunnel LB (Go 高性能单文件独立版)
+# edt-gateway (Go 高性能单文件独立网关)
 
-基于 Go 语言全新重写的 Cloudflare 边缘分流智能聚合网关。针对多子账户 Cloudflare Workers / Pages 免费配额深度优化，提供**协议嗅探双模自适应、128KB 握手首包无感故障转移、多账户 API 实时配额避让及 Web 可视化管理**。
+基于 Go 语言全新重构的 Cloudflare 边缘分流智能聚合网关 `edt-gateway`。针对多子账户 Cloudflare Workers / Pages 免费配额深度优化，提供**协议嗅探双模自适应、128KB 握手首包无感故障转移、多账户 API 实时配额避让及 Web 可视化管理**。
 
 ---
 
 ## 🌟 核心特性与优势 (对比 Node.js 原版)
 
-| 指标 / 特性 | Node.js 原版 | Go 重构高性能独立版 | 提升说明 |
+| 指标 / 特性 | Node.js 原版 | edt-gateway (Go 重构高性能版) | 提升说明 |
 | :--- | :--- | :--- | :--- |
 | **内存常驻 (RSS)** | ~100MB - 250MB | **~15MB - 25MB** | **降低 85%+**，极大降低路由器与 NAS 负担 |
 | **多核并发** | 依赖 Cluster 多进程 + IPC | **原生 Goroutine 调度** | 真正的单进程多核高并发，无 IPC 通信开销 |
