@@ -25,7 +25,7 @@
       <div class="status-pill" title="网关服务正常运行中"><span class="dot"></span><span class="status-text">服务就绪</span></div>
       <button class="btn btn-outline btn-sm" id="btn-header-update" onclick="openUpdateModal()" style="display: inline-flex; align-items: center; gap: 0.35rem;" title="检查 GitHub 最新发布版本与在线更新">
         <span>🚀</span>
-        <span id="header-version-text">v1.0.7</span>
+        <span id="header-version-text">v1.0.8</span>
         <span id="update-badge-dot" style="display:none; width:7px; height:7px; background:#ef4444; border-radius:50%; box-shadow:0 0 6px #ef4444;" title="发现新版本！"></span>
       </button>
       <button class="btn btn-outline btn-sm" onclick="toggleTheme()" id="theme-toggle-btn" style="display: inline-flex; align-items: center; gap: 0.4rem;" title="切换至明亮浅色模式">
@@ -66,6 +66,29 @@
         </button>
       </div>
       <div class="grid-4">
+        <!-- 实时下载速率与累计下载量 -->
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="stat-title" style="display: flex; align-items: center; justify-content: space-between;">
+              <span>🔻 实时下载速率</span>
+              <span id="badge-down-active" class="badge" style="display:none; font-size: 0.68rem; background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); padding: 1px 6px; border-radius: 4px;">传输中</span>
+            </div>
+            <div class="stat-val" id="stat-down-speed" style="color: #34d399; font-family: 'JetBrains Mono', monospace; font-size: 1.55rem;">0 B/s</div>
+            <div class="stat-desc" id="stat-total-down" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">累计下载: 0 B</div>
+          </div>
+        </div>
+
+        <!-- 实时上传速率与累计上传量 -->
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="stat-title" style="display: flex; align-items: center; justify-content: space-between;">
+              <span>🔺 实时上传速率</span>
+              <span id="badge-up-active" class="badge" style="display:none; font-size: 0.68rem; background: rgba(96, 165, 250, 0.15); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3); padding: 1px 6px; border-radius: 4px;">传输中</span>
+            </div>
+            <div class="stat-val" id="stat-up-speed" style="color: #60a5fa; font-family: 'JetBrains Mono', monospace; font-size: 1.55rem;">0 B/s</div>
+            <div class="stat-desc" id="stat-total-up" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">累计上传: 0 B</div>
+          </div>
+        </div>
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div class="stat-title">🔶 XHTTP (Worker) 请求数</div>
@@ -619,7 +642,7 @@
           <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem 1rem;">
             <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem;">当前运行版本</div>
             <div style="font-size:1.15rem; font-weight:700; color:#60a5fa; display:flex; align-items:center; gap:0.4rem;">
-              <span id="update-cur-ver">v1.0.7</span>
+              <span id="update-cur-ver">v1.0.8</span>
               <span id="update-cur-arch" style="font-size:0.7rem; background:rgba(96,165,250,0.15); padding:1px 6px; border-radius:4px; font-weight:500;">linux/amd64</span>
             </div>
           </div>

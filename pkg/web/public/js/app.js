@@ -407,6 +407,28 @@ let isPausedLog = false;
         if (statCircuit) statCircuit.innerText = data.metrics.circuitTrips;
         if (statUptime) statUptime.innerText = formatDuration(data.uptime);
 
+        // 实时渲染网络流量与速率
+        if (data.traffic) {
+          const downSpeedEl = document.getElementById('stat-down-speed');
+          const upSpeedEl = document.getElementById('stat-up-speed');
+          const totalDownEl = document.getElementById('stat-total-down');
+          const totalUpEl = document.getElementById('stat-total-up');
+          const badgeDown = document.getElementById('badge-down-active');
+          const badgeUp = document.getElementById('badge-up-active');
+
+          if (downSpeedEl) downSpeedEl.innerText = data.traffic.currentRxRateStr || '0 B/s';
+          if (upSpeedEl) upSpeedEl.innerText = data.traffic.currentTxRateStr || '0 B/s';
+          if (totalDownEl) totalDownEl.innerText = '累计下载: ' + (data.traffic.totalRxStr || '0 B');
+          if (totalUpEl) totalUpEl.innerText = '累计上传: ' + (data.traffic.totalTxStr || '0 B');
+
+          if (badgeDown) {
+            badgeDown.style.display = (data.traffic.currentRxRate > 1024) ? 'inline-block' : 'none';
+          }
+          if (badgeUp) {
+            badgeUp.style.display = (data.traffic.currentTxRate > 1024) ? 'inline-block' : 'none';
+          }
+        }
+
         if (data.version) {
           const headerVer = document.getElementById('header-version-text');
           if (headerVer) headerVer.innerText = data.version;
@@ -2307,7 +2329,7 @@ function renderSubAccountsCards(accounts) {
         initLogStream();
       }
       if (!statusInterval) {
-        statusInterval = setInterval(loadStatus, 3000);
+        statusInterval = setInterval(loadStatus, 2000);
       }
     }
 

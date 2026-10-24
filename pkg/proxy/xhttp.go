@@ -22,6 +22,7 @@ import (
 	"edgetunnel-lb/pkg/model"
 	"edgetunnel-lb/pkg/prefer"
 	"edgetunnel-lb/pkg/quota"
+	"edgetunnel-lb/pkg/traffic"
 )
 
 type XHTTPGateway struct {
@@ -211,15 +212,19 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		pr, pw := io.Pipe()
 
 		go func(writer *io.PipeWriter) {
+			countingDest := &traffic.CountingWriter{
+				Writer:  writer,
+				OnWrite: traffic.GlobalTracker.RecordTx,
+			}
 			// 先发送握手数据
 			if len(handshakeBytes) > 0 {
-				if _, wErr := writer.Write(handshakeBytes); wErr != nil {
+				if _, wErr := countingDest.Write(handshakeBytes); wErr != nil {
 					_ = writer.CloseWithError(wErr)
 					return
 				}
 			}
 			// 再无缝接管客户端后续持续灌入的上行数据
-			_, copyErr := io.Copy(writer, r.Body)
+			_, copyErr := io.Copy(countingDest, r.Body)
 			if copyErr != nil {
 				_ = writer.CloseWithError(copyErr)
 			} else {
@@ -297,6 +302,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		for {
 			nr, er := resp.Body.Read(downBuf)
 			if nr > 0 {
+				traffic.GlobalTracker.RecordRx(int64(nr))
 				_, _ = w.Write(downBuf[:nr])
 				if isFlusher {
 					flusher.Flush()

@@ -18,6 +18,7 @@ import (
 	"edgetunnel-lb/pkg/model"
 	"edgetunnel-lb/pkg/prefer"
 	"edgetunnel-lb/pkg/quota"
+	"edgetunnel-lb/pkg/traffic"
 )
 
 type WSGateway struct {
@@ -235,6 +236,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 	errCh := make(chan error, 2)
 
+	// c1 -> c2: 客户端发送给远端 (上行流量 / Upload)
 	go func() {
 		bufPtr := GetBuffer32k()
 		defer PutBuffer32k(bufPtr)
@@ -243,10 +245,15 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 		if r1 != nil {
 			src = io.MultiReader(r1, c1)
 		}
-		_, err := io.CopyBuffer(c2, src, *bufPtr)
+		dest := &traffic.CountingWriter{
+			Writer:  c2,
+			OnWrite: traffic.GlobalTracker.RecordTx,
+		}
+		_, err := io.CopyBuffer(dest, src, *bufPtr)
 		errCh <- err
 	}()
 
+	// c2 -> c1: 远端回传给客户端 (下行流量 / Download)
 	go func() {
 		bufPtr := GetBuffer32k()
 		defer PutBuffer32k(bufPtr)
@@ -255,7 +262,11 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 		if r2 != nil {
 			src = io.MultiReader(r2, c2)
 		}
-		_, err := io.CopyBuffer(c1, src, *bufPtr)
+		dest := &traffic.CountingWriter{
+			Writer:  c1,
+			OnWrite: traffic.GlobalTracker.RecordRx,
+		}
+		_, err := io.CopyBuffer(dest, src, *bufPtr)
 		errCh <- err
 	}()
 

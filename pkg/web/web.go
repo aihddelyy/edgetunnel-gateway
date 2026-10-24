@@ -25,6 +25,7 @@ import (
 	"edgetunnel-lb/pkg/notify"
 	"edgetunnel-lb/pkg/prefer"
 	"edgetunnel-lb/pkg/quota"
+	"edgetunnel-lb/pkg/traffic"
 	"edgetunnel-lb/pkg/updater"
 	"edgetunnel-lb/pkg/version"
 )
@@ -409,6 +410,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				"heapTotalMB": memStats.HeapSys / 1024 / 1024,
 			},
 			"metrics":          s.metrics,
+			"traffic":          traffic.GlobalTracker.GetStats(),
 			"health":           healthMap,
 			"preferNodes":      nodes,
 			"trafficHistory":   tfHistory,
