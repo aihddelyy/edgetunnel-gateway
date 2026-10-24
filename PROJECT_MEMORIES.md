@@ -256,3 +256,19 @@ curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_vers
 # 国内加速镜像
 curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/install.sh | sh
 ```
+
+---
+
+## 十、Mihomo / Nikki 同机部署 Fake-IP 冲突根治与自定义镜像
+
+### 1. 故障本质与物理机制
+在 OpenWrt 等路由器上，`edt-gateway` 作为负载均衡网关，通常被配置为“直连放行/绕过透明代理核心”以防止节点连接死循环；而宿主机系统的 DNS 被同机运行的 Mihomo (Clash) 劫持处于 Fake-IP 模式。更新检查与下载时，系统 DNS 返回 `198.18.0.0/15` 的 Fake-IP，该数据包因直连放行规则被物理 WAN 网卡直接抛入公网，公网无路由丢弃导致彻底超时（黑洞）。
+
+### 2. 架构防护方案实施
+- **Anti-FakeIP 穿透 DNS 解析器**：
+  在 [pkg/updater/updater.go](file:///d:/Data/Documents/GitHub/local-edgetunnel-lb/go_version/pkg/updater/updater.go) 的直连拨号层（`cleanDialContext`）增加 Fake-IP 判定 (`198.18.0.0/15`)。若检测到系统 DNS 污染，自动穿透直连公共纯净 DNS（阿里 `223.5.5.5:53`、腾讯 `119.29.29.29:53`、`1.1.1.1:53` 等）获取真实公网 IP。
+- **Release 多通道镜像探测回退**：
+  官方 `api.github.com` 受阻或超时时，自动通过加速镜像以 302 重定向及 Raw 版本文件双通道探测最新版本，保证国内直连 100% 成功检查更新。
+- **自定义加速镜像与智能选择 UI**：
+  在 Web 控制台在线更新面板中，支持内置镜像快捷切换（`ghfast.top`、`ghproxy.net`）与**用户自定义镜像前缀输入**，支持本地记忆存储 (`localStorage`)，并在检查与下载更新时全链路优先调度。
+

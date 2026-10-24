@@ -728,18 +728,40 @@
         </div>
 
         <!-- 底部设置与操作按钮 -->
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem;">
-          <label style="display:inline-flex; align-items:center; gap:0.4rem; font-size:0.8rem; color:var(--text-muted); cursor:pointer; user-select:none;" title="通过 ghproxy.net 加速镜像下载 GitHub Releases 资源，适合国内软路由环境">
-            <input type="checkbox" id="update-mirror-checkbox" checked style="accent-color:#6366f1; width:15px; height:15px; cursor:pointer;">
-            <span>使用加速镜像下载 (国内推荐)</span>
-          </label>
-          <div style="display:flex; gap:0.6rem;">
-            <button class="btn btn-outline btn-sm" id="btn-recheck-update" onclick="manualCheckUpdate()" style="min-width:80px; justify-content:center;">
-              🔄 重新检查
-            </button>
-            <button class="btn btn-primary btn-sm admin-btn" id="btn-apply-update" onclick="applyUpdateAction()" style="min-width:120px; justify-content:center;" disabled>
-              🚀 立即下载并更新
-            </button>
+        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:1rem; display:flex; flex-direction:column; gap:0.75rem;">
+          <!-- 镜像设置控制行 -->
+          <div style="display:flex; flex-direction:column; gap:0.5rem; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:0.6rem 0.85rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+              <label style="display:inline-flex; align-items:center; gap:0.45rem; font-size:0.82rem; color:#e2e8f0; cursor:pointer; user-select:none;" title="通过加速镜像代理下载 GitHub 资源，适合国内无代理软路由环境">
+                <input type="checkbox" id="update-mirror-checkbox" checked onchange="toggleMirrorOptions()" style="accent-color:#6366f1; width:15px; height:15px; cursor:pointer;">
+                <span style="font-weight:600;">⚡ 启用加速镜像通道 (国内环境推荐)</span>
+              </label>
+              <select id="update-mirror-select" onchange="onMirrorSelectChange()" style="background:#0f172a; color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); border-radius:6px; font-size:0.78rem; padding:3px 8px; cursor:pointer; outline:none;">
+                <option value="https://ghfast.top/">内置: ghfast.top (推荐)</option>
+                <option value="https://ghproxy.net/">内置: ghproxy.net</option>
+                <option value="custom">✏️ 自定义镜像地址...</option>
+              </select>
+            </div>
+            <!-- 自定义镜像输入框 (选择 custom 时展示) -->
+            <div id="update-custom-mirror-wrapper" style="display:none; align-items:center; gap:0.5rem; margin-top:0.25rem;">
+              <span style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">自定义前缀:</span>
+              <input type="text" id="update-custom-mirror-input" placeholder="例如 https://ghfast.top/ 或 https://custom-mirror.com/" style="flex:1; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 8px; font-size:0.78rem; color:#fff; font-family:'JetBrains Mono',monospace; outline:none;" oninput="saveCustomMirrorPref()">
+            </div>
+          </div>
+
+          <!-- 操作按钮行 -->
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.6rem;">
+            <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem;" title="已内置专属干净 DNS 穿透解析，彻底杜绝 Fake-IP 198.18.x.x 导致的连接黑洞">
+              <span>🛡️ Anti-FakeIP 穿透防污染已就绪</span>
+            </div>
+            <div style="display:flex; gap:0.6rem;">
+              <button class="btn btn-outline btn-sm" id="btn-recheck-update" onclick="manualCheckUpdate()" style="min-width:85px; justify-content:center;">
+                🔄 重新检查
+              </button>
+              <button class="btn btn-primary btn-sm admin-btn" id="btn-apply-update" onclick="applyUpdateAction()" style="min-width:130px; justify-content:center;" disabled>
+                🚀 立即下载并更新
+              </button>
+            </div>
           </div>
         </div>
       </div>

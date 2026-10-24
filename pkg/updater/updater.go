@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -78,35 +80,119 @@ type CheckResult struct {
 	Arch           string `json:"arch"`
 }
 
-// CheckForUpdate 查询 GitHub 官方 Releases 仓库的最新发布版本
-func CheckForUpdate(proxyURL string) (*CheckResult, error) {
+// CleanMirrorURL 标准化镜像 URL，确保以 http/https 开头且以 / 结尾
+func CleanMirrorURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		raw = "https://" + raw
+	}
+	if !strings.HasSuffix(raw, "/") {
+		raw += "/"
+	}
+	return raw
+}
+
+var defaultMirrors = []string{
+	"https://ghfast.top/",
+	"https://ghproxy.net/",
+}
+
+// CheckForUpdate 查询 GitHub 官方 Releases 仓库的最新发布版本 (支持自定义镜像与镜像回退)
+func CheckForUpdate(proxyURL string, customMirror string) (*CheckResult, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", version.RepoOwner, version.RepoName)
 
-	client := createHTTPClient(proxyURL, 15*time.Second)
+	client := createHTTPClient(proxyURL, 10*time.Second)
 	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %w", err)
-	}
-	req.Header.Set("User-Agent", "EdgeTunnel-LB-Updater")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("连接 GitHub API 失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("GitHub API 返回状态码 %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
 	var rel GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, fmt.Errorf("解析 Release 数据失败: %w", err)
+	var fetchErr error
+	success := false
+
+	if err == nil {
+		req.Header.Set("User-Agent", "EdgeTunnel-LB-Updater")
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := client.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				if err := json.NewDecoder(resp.Body).Decode(&rel); err == nil && rel.TagName != "" {
+					success = true
+				} else {
+					fetchErr = fmt.Errorf("解析 Release 数据失败")
+				}
+			} else {
+				bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+				fetchErr = fmt.Errorf("GitHub API 返回状态码 %d: %s", resp.StatusCode, string(bodyBytes))
+			}
+		} else {
+			fetchErr = err
+		}
+	} else {
+		fetchErr = err
+	}
+
+	// 若官方 API 失败，尝试镜像通道探测最新版本
+	if !success {
+		logger.Warnf("[Updater] GitHub 官方 API 检索失败 (%v)，正在启动镜像多通道版本探测...", fetchErr)
+		var mirrorCandidates []string
+		if cm := CleanMirrorURL(customMirror); cm != "" {
+			mirrorCandidates = append(mirrorCandidates, cm)
+		}
+		for _, dm := range defaultMirrors {
+			if CleanMirrorURL(customMirror) != dm {
+				mirrorCandidates = append(mirrorCandidates, dm)
+			}
+		}
+
+		for _, m := range mirrorCandidates {
+			// 1. 尝试镜像 302 重定向探测
+			tag := probeTagViaRedirect(client, m)
+			if tag != "" {
+				logger.Infof("[Updater] ✅ 通过镜像 (%s) 探测到最新发布 Tag: %s", m, tag)
+				rel = GitHubRelease{
+					TagName:     tag,
+					Name:        fmt.Sprintf("Release %s (通过加速镜像获取)", tag),
+					Body:        "（由于网络环境限制，当前通过加速镜像同步检测到此新版本）",
+					PublishedAt: time.Now().Format(time.RFC3339),
+				}
+				success = true
+				break
+			}
+
+			// 2. 尝试镜像 raw 代码版本探测
+			tag = probeTagViaRawVersion(client, m)
+			if tag != "" {
+				logger.Infof("[Updater] ✅ 通过镜像 (%s) Raw 代码探测到最新版本: %s", m, tag)
+				rel = GitHubRelease{
+					TagName:     tag,
+					Name:        fmt.Sprintf("Release %s (版本探测)", tag),
+					Body:        "（通过加速镜像同步检测到此新版本）",
+					PublishedAt: time.Now().Format(time.RFC3339),
+				}
+				success = true
+				break
+			}
+		}
+	}
+
+	if !success {
+		return nil, fmt.Errorf("检查更新失败 (官方 API 与加速镜像均不可达): %w", fetchErr)
 	}
 
 	targetAsset, downloadURL, assetSize := matchAsset(rel.Assets, runtime.GOOS, runtime.GOARCH)
+
+	// 若是从镜像探测得到且未带 assets，则自动推导标准产物下载地址
+	if downloadURL == "" && rel.TagName != "" {
+		targetAsset = "edt-gateway-" + runtime.GOOS + "-" + runtime.GOARCH
+		if runtime.GOOS == "windows" {
+			targetAsset += ".exe"
+		}
+		downloadURL = fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
+			version.RepoOwner, version.RepoName, rel.TagName, targetAsset)
+	}
 
 	hasUpdate := isNewerVersion(rel.TagName, version.CurrentVersion)
 
@@ -127,8 +213,63 @@ func CheckForUpdate(proxyURL string) (*CheckResult, error) {
 	return res, nil
 }
 
-// ApplyUpdate 下载目标安装包并执行原子更新与平滑自重启
-func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
+// probeTagViaRedirect 通过镜像请求 releases/latest 获取 302 重定向中的 tag
+func probeTagViaRedirect(client *http.Client, mirror string) string {
+	latestURL := mirror + fmt.Sprintf("https://github.com/%s/%s/releases/latest", version.RepoOwner, version.RepoName)
+	noRedirectClient := &http.Client{
+		Transport: client.Transport,
+		Timeout:   8 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequest("GET", latestURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "EdgeTunnel-LB-Updater")
+	resp, err := noRedirectClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusSeeOther {
+		loc := resp.Header.Get("Location")
+		re := regexp.MustCompile(`/releases/tag/([^/?#]+)`)
+		if m := re.FindStringSubmatch(loc); len(m) > 1 {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	return ""
+}
+
+// probeTagViaRawVersion 通过镜像获取远端代码中的 version.go 解析版本号
+func probeTagViaRawVersion(client *http.Client, mirror string) string {
+	rawURL := mirror + fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/go_version/pkg/version/version.go", version.RepoOwner, version.RepoName)
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "EdgeTunnel-LB-Updater")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		re := regexp.MustCompile(`CurrentVersion\s*=\s*"([^"]+)"`)
+		if m := re.FindStringSubmatch(string(body)); len(m) > 1 {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	return ""
+}
+
+// ApplyUpdate 下载目标安装包并执行原子更新与平滑自重启 (支持自定义镜像与多源重试)
+func ApplyUpdate(downloadURL string, useMirror bool, customMirror string, proxyURL string) error {
 	if downloadURL == "" {
 		err := fmt.Errorf("下载链接不能为空")
 		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
@@ -157,11 +298,21 @@ func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 	tmpPath := filepath.Join(exeDir, fmt.Sprintf(".update_%d.tmp", time.Now().UnixNano()))
 	bakPath := filepath.Join(exeDir, fmt.Sprintf(".backup_%d.bak", time.Now().UnixNano()))
 
-	// 2. 准备下载 URLs (支持镜像加速与直连重试)
+	// 2. 准备下载 URLs (支持自定义镜像、内置镜像与直连多级回退)
 	var tryURLs []string
-	if useMirror && strings.HasPrefix(downloadURL, "https://github.com/") {
-		tryURLs = append(tryURLs, "https://ghproxy.net/"+downloadURL)
-		tryURLs = append(tryURLs, "https://ghfast.top/"+downloadURL)
+	cleanCM := CleanMirrorURL(customMirror)
+
+	if strings.HasPrefix(downloadURL, "https://github.com/") {
+		if cleanCM != "" {
+			tryURLs = append(tryURLs, cleanCM+downloadURL)
+		}
+		if useMirror {
+			for _, dm := range defaultMirrors {
+				if cleanCM != dm {
+					tryURLs = append(tryURLs, dm+downloadURL)
+				}
+			}
+		}
 	}
 	tryURLs = append(tryURLs, downloadURL)
 
@@ -174,7 +325,9 @@ func ApplyUpdate(downloadURL string, useMirror bool, proxyURL string) error {
 
 	for idx, urlStr := range tryURLs {
 		sourceLabel := "官方源"
-		if strings.Contains(urlStr, "ghproxy") || strings.Contains(urlStr, "ghfast") {
+		if cleanCM != "" && strings.HasPrefix(urlStr, cleanCM) {
+			sourceLabel = "用户自定义镜像"
+		} else if strings.Contains(urlStr, "ghproxy") || strings.Contains(urlStr, "ghfast") {
 			sourceLabel = "国内加速镜像"
 		}
 		logger.Infof("[Updater] 尝试第 %d/%d 个下载源 (%s): %s", idx+1, len(tryURLs), sourceLabel, urlStr)
@@ -469,19 +622,139 @@ func isNewerVersion(latest, current string) bool {
 	return false
 }
 
+// isFakeIP 判定是否落入 RFC 2544 / RFC 5737 基准测试保留网段 198.18.0.0/15 (198.18.0.0 - 198.19.255.255)
+// 该网段常被 Mihomo / Clash / Sing-box 用作 Fake-IP 地址池
+func isFakeIP(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	return ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19)
+}
+
+// 纯净公共 DNS 服务器列表（绕过本机被劫持的 53/1053 端口）
+var publicDNSList = []string{
+	"223.5.5.5:53",   // 阿里公共 DNS
+	"119.29.29.29:53", // 腾讯 DNSPod
+	"180.76.76.76:53", // 百度 DNS
+	"1.1.1.1:53",      // Cloudflare
+	"8.8.8.8:53",      // Google
+}
+
+// resolveDomainClean 防 Fake-IP 穿透解析
+func resolveDomainClean(ctx context.Context, host string) ([]string, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		if isFakeIP(ip) {
+			return nil, fmt.Errorf("目标地址为 Fake-IP 保留段 (%s)，无法直连公网路由", host)
+		}
+		return []string{host}, nil
+	}
+
+	// 1. 先尝试用系统默认 DNS 解析
+	defaultResolver := net.DefaultResolver
+	ips, err := defaultResolver.LookupIPAddr(ctx, host)
+	hasFakeIP := false
+	var validIPs []string
+
+	if err == nil && len(ips) > 0 {
+		for _, ipa := range ips {
+			if isFakeIP(ipa.IP) {
+				hasFakeIP = true
+			} else {
+				validIPs = append(validIPs, ipa.IP.String())
+			}
+		}
+	}
+
+	if !hasFakeIP && len(validIPs) > 0 {
+		return validIPs, nil
+	}
+
+	if hasFakeIP {
+		logger.Warnf("[Updater/DNS] 检测到系统 DNS 返回 Fake-IP (198.18.x.x) 污染: 域名 %s，正在启用公网纯净 DNS 穿透解析...", host)
+	}
+
+	// 2. 依次向公共纯净 DNS 请求真实 IP
+	for _, dnsServer := range publicDNSList {
+		r := &net.Resolver{
+			PreferGo: true,
+			Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 3 * time.Second}
+				return d.DialContext(dialCtx, "udp", dnsServer)
+			},
+		}
+		cleanIPs, dnsErr := r.LookupIPAddr(ctx, host)
+		if dnsErr == nil && len(cleanIPs) > 0 {
+			var cleanList []string
+			for _, cip := range cleanIPs {
+				if !isFakeIP(cip.IP) {
+					cleanList = append(cleanList, cip.IP.String())
+				}
+			}
+			if len(cleanList) > 0 {
+				logger.Infof("[Updater/DNS] ✅ 域名 %s 通过纯净 DNS (%s) 解析成功: %v", host, dnsServer, cleanList)
+				return cleanList, nil
+			}
+		}
+	}
+
+	if len(validIPs) > 0 {
+		return validIPs, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("解析域名 %s 失败 (系统 DNS 与公共 DNS 均无法解析): %w", host, err)
+	}
+	return nil, fmt.Errorf("域名 %s 仅解析到 Fake-IP，无法建立直连", host)
+}
+
+// cleanDialContext 自定义纯净直连拨号器，杜绝 Fake-IP 掉坑
+func cleanDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+		port = "443"
+	}
+
+	ips, err := resolveDomainClean(ctx, host)
+	if err != nil {
+		// 回退到普通拨号
+		d := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+		return d.DialContext(ctx, network, addr)
+	}
+
+	dialer := net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	var lastErr error
+	for _, ipStr := range ips {
+		targetAddr := net.JoinHostPort(ipStr, port)
+		conn, dialErr := dialer.DialContext(ctx, network, targetAddr)
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+	}
+
+	return nil, fmt.Errorf("连接 %s (%v) 失败: %w", addr, ips, lastErr)
+}
+
 func createHTTPClient(proxyURL string, timeout time.Duration) *http.Client {
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         cleanDialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
 	if proxyURL != "" {
 		if u, err := url.Parse(proxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(u)
+			// 配置了专属代理时由代理端接管解析与转发
+			transport.DialContext = (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext
 		}
 	}
 

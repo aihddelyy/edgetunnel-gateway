@@ -883,7 +883,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	// Update Check
 	if path == "/api/update/check" && r.Method == http.MethodGet {
 		cfg := s.cfgMgr.Get()
-		res, err := updater.CheckForUpdate(cfg.Telegram.Proxy)
+		mirror := r.URL.Query().Get("mirror")
+		res, err := updater.CheckForUpdate(cfg.Telegram.Proxy, mirror)
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": err.Error()})
 			return
@@ -902,14 +903,15 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	// Update Apply
 	if path == "/api/update/apply" && r.Method == http.MethodPost {
 		var req struct {
-			DownloadURL string `json:"downloadUrl"`
-			UseMirror   bool   `json:"useMirror"`
+			DownloadURL  string `json:"downloadUrl"`
+			UseMirror    bool   `json:"useMirror"`
+			CustomMirror string `json:"customMirror"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		cfg := s.cfgMgr.Get()
 		if req.DownloadURL == "" {
-			chk, err := updater.CheckForUpdate(cfg.Telegram.Proxy)
+			chk, err := updater.CheckForUpdate(cfg.Telegram.Proxy, req.CustomMirror)
 			if err != nil {
 				writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": "无法获取最新下载链接: " + err.Error()})
 				return
@@ -926,7 +928,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			if err := updater.ApplyUpdate(req.DownloadURL, req.UseMirror, cfg.Telegram.Proxy); err != nil {
+			if err := updater.ApplyUpdate(req.DownloadURL, req.UseMirror, req.CustomMirror, cfg.Telegram.Proxy); err != nil {
 				logger.Errorf("[Updater] 自动下载更新失败: %v", err)
 			}
 		}()

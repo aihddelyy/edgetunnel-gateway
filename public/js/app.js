@@ -2410,9 +2410,84 @@ function renderSubAccountsCards(accounts) {
     let isCheckingUpdate = false;
     let isApplyingUpdate = false;
 
+    function initUpdateMirrorUI() {
+      const select = document.getElementById('update-mirror-select');
+      const inputWrap = document.getElementById('update-custom-mirror-wrapper');
+      const input = document.getElementById('update-custom-mirror-input');
+
+      const savedChoice = localStorage.getItem('edt_update_mirror_choice') || 'https://ghfast.top/';
+      const savedCustom = localStorage.getItem('edt_update_mirror_custom') || '';
+
+      if (input && savedCustom) {
+        input.value = savedCustom;
+      }
+
+      if (select) {
+        if (savedChoice === 'custom' || (!select.querySelector(`option[value="${savedChoice}"]`) && savedChoice)) {
+          select.value = 'custom';
+          if (inputWrap) inputWrap.style.display = 'flex';
+          if (input && !input.value) input.value = savedChoice;
+        } else {
+          select.value = savedChoice;
+          if (inputWrap) inputWrap.style.display = 'none';
+        }
+      }
+      toggleMirrorOptions();
+    }
+
+    function toggleMirrorOptions() {
+      const chk = document.getElementById('update-mirror-checkbox');
+      const select = document.getElementById('update-mirror-select');
+      const inputWrap = document.getElementById('update-custom-mirror-wrapper');
+      const enabled = chk ? chk.checked : true;
+      if (select) select.disabled = !enabled;
+      if (inputWrap) {
+        if (!enabled || (select && select.value !== 'custom')) {
+          inputWrap.style.display = 'none';
+        } else if (enabled && select && select.value === 'custom') {
+          inputWrap.style.display = 'flex';
+        }
+      }
+    }
+    window.toggleMirrorOptions = toggleMirrorOptions;
+
+    function onMirrorSelectChange() {
+      const select = document.getElementById('update-mirror-select');
+      const inputWrap = document.getElementById('update-custom-mirror-wrapper');
+      const val = select ? select.value : 'https://ghfast.top/';
+      if (val === 'custom') {
+        if (inputWrap) inputWrap.style.display = 'flex';
+      } else {
+        if (inputWrap) inputWrap.style.display = 'none';
+      }
+      localStorage.setItem('edt_update_mirror_choice', val);
+    }
+    window.onMirrorSelectChange = onMirrorSelectChange;
+
+    function saveCustomMirrorPref() {
+      const input = document.getElementById('update-custom-mirror-input');
+      if (input) {
+        localStorage.setItem('edt_update_mirror_custom', input.value.trim());
+      }
+    }
+    window.saveCustomMirrorPref = saveCustomMirrorPref;
+
+    function getSelectedMirror() {
+      const chk = document.getElementById('update-mirror-checkbox');
+      if (chk && !chk.checked) return '';
+      const select = document.getElementById('update-mirror-select');
+      if (!select) return 'https://ghfast.top/';
+      if (select.value === 'custom') {
+        const input = document.getElementById('update-custom-mirror-input');
+        return input ? input.value.trim() : '';
+      }
+      return select.value;
+    }
+
     function openUpdateModal() {
       const modal = document.getElementById('update-modal');
       if (modal) modal.style.display = 'flex';
+      initUpdateMirrorUI();
       checkUpdate(false);
     }
     window.openUpdateModal = openUpdateModal;
@@ -2449,13 +2524,18 @@ function renderSubAccountsCards(accounts) {
           banner.style.borderColor = 'rgba(59,130,246,0.25)';
         }
         if (bannerIcon) bannerIcon.innerText = '🔍';
-        if (bannerText) bannerText.innerText = '正在通过 GitHub API 检索最新发布版本...';
+        if (bannerText) bannerText.innerText = '正在检索最新发布版本 (支持纯净DNS与加速镜像)...';
         if (latestVerEl) latestVerEl.innerText = '正在检索...';
         if (recheckBtn) recheckBtn.disabled = true;
       }
 
       try {
-        const res = await fetch('/api/update/check');
+        const currentMirror = getSelectedMirror();
+        let checkUrl = '/api/update/check';
+        if (currentMirror) {
+          checkUrl += '?mirror=' + encodeURIComponent(currentMirror);
+        }
+        const res = await fetch(checkUrl);
         const json = await res.json();
 
         if (!json.ok) {
@@ -2584,9 +2664,11 @@ function renderSubAccountsCards(accounts) {
       }
 
       const isMirror = document.getElementById('update-mirror-checkbox')?.checked ?? true;
+      const currentMirror = getSelectedMirror();
       const targetVer = latestUpdateInfo.latestVersion || '最新版';
+      const mirrorLabel = !isMirror ? 'GitHub 官方源' : (currentMirror ? `加速镜像 (${currentMirror})` : '国内加速镜像');
       const ok = await showConfirm(
-        `确定要下载并更新至 ${targetVer} 吗？\n\n系统将自动通过 ${isMirror ? '加速镜像源' : 'GitHub 官方源'} 下载二进制、校验完整性并完成原子替换与平滑自重启。`,
+        `确定要下载并更新至 ${targetVer} 吗？\n\n系统将自动通过 ${mirrorLabel} 下载二进制、校验完整性并完成原子替换与平滑自重启。`,
         {
           title: '确认在线更新',
           confirmText: '立即更新',
@@ -2633,7 +2715,8 @@ function renderSubAccountsCards(accounts) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             downloadUrl: latestUpdateInfo.downloadUrl,
-            useMirror: isMirror
+            useMirror: isMirror,
+            customMirror: currentMirror
           })
         });
         const json = await res.json();
