@@ -73,7 +73,18 @@ go_version/
 
 ### 2. 部署运行（OpenWrt 软路由 / VPS）
 
-#### 首次运行配置
+#### 方式一：OpenWrt 系统级全自动一键安装（强烈推荐）
+在 OpenWrt 终端（SSH）执行以下命令，自动完成架构识别、安装、专属独立用户创建、系统服务与开机自启、固件升级防丢失配置：
+
+```bash
+# GitHub 原生链接
+curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/install.sh | sh
+
+# 国内加速镜像链接（网络受限时使用）
+curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/install.sh | sh
+```
+
+#### 方式二：手动轻量运行（适合常规 Linux VPS）
 ```bash
 # 进入部署目录（以 /root/edgetunnel-lb 为例）
 cd /root/edgetunnel-lb
@@ -81,17 +92,9 @@ cd /root/edgetunnel-lb
 # 创建配置文件（可根据 config.example.json 修改）
 cp config.example.json config.json
 
-# 赋予可执行权限
+# 赋予可执行权限并后台启动
 chmod +x edt-gateway-linux-amd64
-
-# 后台启动
 nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
-```
-
-#### 开机自启动（OpenWrt 系统）
-在 `/etc/rc.local` 中添加（位于 `exit 0` 之前）：
-```bash
-cd /root/edgetunnel-lb && nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
 ```
 
 ---
