@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/model"
 )
@@ -102,6 +103,10 @@ func (m *Manager) applyDefaults() {
 	if m.cfg.MemoryGuard.IntervalMinutes <= 0 {
 		m.cfg.MemoryGuard.IntervalMinutes = 5
 	}
+	if len(m.cfg.DNS) == 0 {
+		m.cfg.DNS = []string{"223.5.5.5", "119.29.29.29"}
+	}
+	dialer.SetDNS(m.cfg.DNS)
 }
 
 func (m *Manager) load() error {

@@ -274,4 +274,21 @@ curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetun
 - **非 root 用户运行与自更新权限治理**：
   为彻底解决网关以无特权用户 `edtgw` 运行时，因对系统目录 `/usr/bin` 缺乏写权限导致的 `permission denied` 报错，实体程序统一规范部署至 `/etc/edt-gateway/edt-gateway` 并整体授权 `edtgw:edtgw`，在 `/usr/bin/edt-gateway` 挂载系统软链接。更新程序在同分区所属目录内创建临时文件和执行原子重命名，自此实现在线无感自愈升级。
 
+---
+
+## 十一、网关全局出站纯净 DNS 架构升级（Web UI 自定义与统一拨号）
+
+### 1. 演进背景
+当客户端在分流节点参数中指定域名格式的优选服务器（例如 `?prefer=cf.090227.xyz:443` 或配置了域名形式的 `defaultPrefer`）时，网关出站拨号必须解析该域名。若同机运行了 Mihomo/Clash，系统 DNS 默认返回 `198.18.0.0/15` 的 Fake-IP。之前仅在升级模块零散处理，出站业务流量与测速未统一覆盖，导致整个代理链路超时。
+
+### 2. 彻底架构方案（不再判断 Fake-IP，全出站直指纯净 DNS）
+- **统一出站引擎 `pkg/dialer`**：
+  构建统一的全局拨号器，所有由网关自身发起的出站流量（WebSocket/XHTTP 优选出站、Prefer 节点延迟测速、在线更新与镜像下载、Cloudflare 配额与登录 API），**彻底不经过宿主机系统 DNS，也不再做 Fake-IP 猜测与拦截**。所有域名解析一律直接向配置的纯净 DNS 服务器发起查询。
+- **默认 DNS 与 Web UI 配置**：
+  - 默认出站纯净 DNS 为：`223.5.5.5`（阿里公共 DNS）和 `119.29.29.29`（腾讯 DNSPod）。
+  - 在 Web 控制台“核心配置”中新增“出站纯净 DNS 服务器”配置项，支持用户自定义多个 DNS（逗号分隔），保存后通过 `dialer.SetDNS()` 即时热生效。
+- **高并发 2 分钟内存 TTL 缓存**：
+  优选转发为高频高并发流量，为避免每次建立代理连接均向公网发起 UDP DNS 查询，`dialer` 内置并发安全的内存 TTL 缓存（默认 2 分钟），命中缓存时 0ms 零延迟返回真实公网 IP。
+
+
 

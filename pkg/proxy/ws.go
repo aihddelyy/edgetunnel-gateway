@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"edgetunnel-lb/pkg/config"
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/health"
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/model"
@@ -165,8 +166,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 
 		targetAddr := net.JoinHostPort(connectHost, strconv.Itoa(connectPort))
-		dialer := &net.Dialer{Timeout: 7 * time.Second}
-		rawRemote, err := dialer.Dial("tcp", targetAddr)
+		rawRemote, err := dialer.DialTimeout("tcp", targetAddr, 7*time.Second)
 		if err != nil {
 			logger.Warnf("[WS 优选链路连接失败 #%s -> %s]: %v", clientTag, targetAddr, err)
 			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())

@@ -420,6 +420,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				"workerBackends":         cfg.WorkerBackends,
 				"pagesBackends":          cfg.PagesBackends,
 				"defaultPrefer":          cfg.DefaultPrefer,
+				"dns":                    cfg.DNS,
 				"backendAccountMap":      cfg.BackendAccountMap,
 				"quotaDisplayMode":       cfg.QuotaDisplayMode,
 				"disabledBackends":       cfg.DisabledBackends,
@@ -452,6 +453,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			err := s.cfgMgr.Update(func(c *model.Config) {
 				if newCfg.DefaultPrefer != "" {
 					c.DefaultPrefer = newCfg.DefaultPrefer
+				}
+				if len(newCfg.DNS) > 0 {
+					c.DNS = newCfg.DNS
 				}
 				if len(newCfg.WorkerBackends) > 0 {
 					c.WorkerBackends = newCfg.WorkerBackends

@@ -1014,6 +1014,7 @@ let isPausedLog = false;
         const res = await authFetch('/api/config');
         const data = await res.json();
         const defPref = document.getElementById('cfg-defaultPrefer');
+        const dnsInput = document.getElementById('cfg-dns');
         const wBack = document.getElementById('cfg-workerBackends');
         const pBack = document.getElementById('cfg-pagesBackends');
         const tgTok = document.getElementById('cfg-tgToken');
@@ -1022,6 +1023,7 @@ let isPausedLog = false;
         const tgHost = document.getElementById('cfg-tgApiHost');
 
         if (defPref) defPref.value = data.defaultPrefer || '';
+        if (dnsInput) dnsInput.value = (data.dns && data.dns.length > 0) ? data.dns.join(', ') : '223.5.5.5, 119.29.29.29';
         if (wBack) wBack.value = (data.workerBackends || []).join(', ');
         if (pBack) pBack.value = (data.pagesBackends || []).join(', ');
         if (tgTok) tgTok.value = data.telegram?.botToken || '';
@@ -1191,6 +1193,7 @@ function operator(proxies, targetPlatform) {
 
       const payload = {
         defaultPrefer: document.getElementById('cfg-defaultPrefer').value.trim(),
+        dns: (document.getElementById('cfg-dns')?.value || '223.5.5.5, 119.29.29.29').split(',').map(s=>s.trim()).filter(Boolean),
         workerBackends: document.getElementById('cfg-workerBackends').value.split(',').map(s=>s.trim()).filter(Boolean),
         pagesBackends: document.getElementById('cfg-pagesBackends').value.split(',').map(s=>s.trim()).filter(Boolean),
         trafficSampleMinutes: parseInt(document.getElementById('cfg-trafficSampleMinutes')?.value || '5', 10),

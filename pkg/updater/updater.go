@@ -1,13 +1,10 @@
 package updater
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/version"
 )
@@ -623,144 +621,8 @@ func isNewerVersion(latest, current string) bool {
 	return false
 }
 
-// isFakeIP 判定是否落入 RFC 2544 / RFC 5737 基准测试保留网段 198.18.0.0/15 (198.18.0.0 - 198.19.255.255)
-// 该网段常被 Mihomo / Clash / Sing-box 用作 Fake-IP 地址池
-func isFakeIP(ip net.IP) bool {
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return false
-	}
-	return ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19)
-}
-
-// 纯净公共 DNS 服务器列表（绕过本机被劫持的 53/1053 端口）
-var publicDNSList = []string{
-	"223.5.5.5:53",   // 阿里公共 DNS
-	"119.29.29.29:53", // 腾讯 DNSPod
-	"180.76.76.76:53", // 百度 DNS
-	"1.1.1.1:53",      // Cloudflare
-	"8.8.8.8:53",      // Google
-}
-
-// resolveDomainClean 防 Fake-IP 穿透解析
-func resolveDomainClean(ctx context.Context, host string) ([]string, error) {
-	if ip := net.ParseIP(host); ip != nil {
-		if isFakeIP(ip) {
-			return nil, fmt.Errorf("目标地址为 Fake-IP 保留段 (%s)，无法直连公网路由", host)
-		}
-		return []string{host}, nil
-	}
-
-	// 1. 先尝试用系统默认 DNS 解析
-	defaultResolver := net.DefaultResolver
-	ips, err := defaultResolver.LookupIPAddr(ctx, host)
-	hasFakeIP := false
-	var validIPs []string
-
-	if err == nil && len(ips) > 0 {
-		for _, ipa := range ips {
-			if isFakeIP(ipa.IP) {
-				hasFakeIP = true
-			} else {
-				validIPs = append(validIPs, ipa.IP.String())
-			}
-		}
-	}
-
-	if !hasFakeIP && len(validIPs) > 0 {
-		return validIPs, nil
-	}
-
-	if hasFakeIP {
-		logger.Warnf("[Updater/DNS] 检测到系统 DNS 返回 Fake-IP (198.18.x.x) 污染: 域名 %s，正在启用公网纯净 DNS 穿透解析...", host)
-	}
-
-	// 2. 依次向公共纯净 DNS 请求真实 IP
-	for _, dnsServer := range publicDNSList {
-		r := &net.Resolver{
-			PreferGo: true,
-			Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{Timeout: 3 * time.Second}
-				return d.DialContext(dialCtx, "udp", dnsServer)
-			},
-		}
-		cleanIPs, dnsErr := r.LookupIPAddr(ctx, host)
-		if dnsErr == nil && len(cleanIPs) > 0 {
-			var cleanList []string
-			for _, cip := range cleanIPs {
-				if !isFakeIP(cip.IP) {
-					cleanList = append(cleanList, cip.IP.String())
-				}
-			}
-			if len(cleanList) > 0 {
-				logger.Infof("[Updater/DNS] ✅ 域名 %s 通过纯净 DNS (%s) 解析成功: %v", host, dnsServer, cleanList)
-				return cleanList, nil
-			}
-		}
-	}
-
-	if len(validIPs) > 0 {
-		return validIPs, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("解析域名 %s 失败 (系统 DNS 与公共 DNS 均无法解析): %w", host, err)
-	}
-	return nil, fmt.Errorf("域名 %s 仅解析到 Fake-IP，无法建立直连", host)
-}
-
-// cleanDialContext 自定义纯净直连拨号器，杜绝 Fake-IP 掉坑
-func cleanDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-		port = "443"
-	}
-
-	ips, err := resolveDomainClean(ctx, host)
-	if err != nil {
-		// 回退到普通拨号
-		d := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-		return d.DialContext(ctx, network, addr)
-	}
-
-	dialer := net.Dialer{
-		Timeout:   10 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}
-
-	var lastErr error
-	for _, ipStr := range ips {
-		targetAddr := net.JoinHostPort(ipStr, port)
-		conn, dialErr := dialer.DialContext(ctx, network, targetAddr)
-		if dialErr == nil {
-			return conn, nil
-		}
-		lastErr = dialErr
-	}
-
-	return nil, fmt.Errorf("连接 %s (%v) 失败: %w", addr, ips, lastErr)
-}
-
+// createHTTPClient 复用全局 Anti-FakeIP 统一拨号器生成防污染客户端
 func createHTTPClient(proxyURL string, timeout time.Duration) *http.Client {
-	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         cleanDialContext,
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-
-	if proxyURL != "" {
-		if u, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(u)
-			// 配置了专属代理时由代理端接管解析与转发
-			transport.DialContext = (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext
-		}
-	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
-	}
+	return dialer.NewCleanHTTPClient(proxyURL, timeout)
 }
+

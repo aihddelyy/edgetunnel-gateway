@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"edgetunnel-lb/pkg/config"
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/model"
 	"edgetunnel-lb/pkg/notify"
@@ -351,7 +352,7 @@ func (m *Manager) fetchDirect(cfg model.Config) model.CFAccountsResult {
 	dateEnd := now.Format("2006-01-02")
 
 	var briefList []model.CFAccountBrief
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := dialer.NewCleanHTTPClient("", 15*time.Second)
 
 	for idx, acc := range accounts {
 		accID := strings.TrimSpace(acc.AccountID)
@@ -834,8 +835,9 @@ func (m *Manager) fetchUsagePanel(cfg model.Config) model.CFAccountsResult {
 	}
 
 	client := &http.Client{
-		Jar:     jar,
-		Timeout: 20 * time.Second,
+		Transport: dialer.NewCleanHTTPTransport("", 20*time.Second),
+		Jar:       jar,
+		Timeout:   20 * time.Second,
 	}
 
 	// 1. POST /api/login 获取会话凭证 Cookie

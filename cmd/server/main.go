@@ -96,5 +96,6 @@ func printBanner(cfg model.Config) {
 	fmt.Printf("   ⚡ 8788 端口: XHTTP 嗅探双模网关 (Worker 后端: %d 个)\n", len(cfg.WorkerBackends))
 	fmt.Printf("   🖥️ 8789 端口: Web 控制台与 REST API (http://0.0.0.0:%d)\n", cfg.WebPort)
 	fmt.Printf("   🎯 默认出站优选: %s\n", cfg.DefaultPrefer)
+	fmt.Printf("   🔍 出站纯净 DNS: %v\n", cfg.DNS)
 	fmt.Println("============================================================")
 }

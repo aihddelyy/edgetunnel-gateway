@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"edgetunnel-lb/pkg/config"
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/health"
 	"edgetunnel-lb/pkg/logger"
 	"edgetunnel-lb/pkg/model"
@@ -132,8 +133,7 @@ func (g *XHTTPGateway) getOrCreateTransport(connectHost string, connectPort int,
 			NextProtos:         []string{"h2"},
 		},
 		DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-			dialer := &net.Dialer{Timeout: 7 * time.Second, KeepAlive: 15 * time.Second}
-			rawConn, err := dialer.DialContext(ctx, "tcp", targetAddr)
+			rawConn, err := dialer.DialContextWithTimeout(ctx, "tcp", targetAddr, 7*time.Second)
 			if err != nil {
 				return nil, err
 			}

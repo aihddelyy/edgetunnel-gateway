@@ -6,6 +6,7 @@ type Config struct {
 	H2CPort                int               `json:"h2cPort"`
 	WebPort                int               `json:"webPort"`
 	DefaultPrefer          string            `json:"defaultPrefer"`
+	DNS                    []string          `json:"dns"`
 	TrafficSampleMinutes   int               `json:"trafficSampleMinutes"`
 	CFQuotaIntervalMinutes int               `json:"cfQuotaIntervalMinutes"`
 	CFPanelURL             string            `json:"cfPanelUrl"`

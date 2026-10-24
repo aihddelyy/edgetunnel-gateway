@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"edgetunnel-lb/pkg/config"
+	"edgetunnel-lb/pkg/dialer"
 	"edgetunnel-lb/pkg/model"
 )
 
@@ -359,7 +360,7 @@ func PingTarget(target string, timeout time.Duration) PingResult {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := dialer.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return PingResult{
 			Target: target,
