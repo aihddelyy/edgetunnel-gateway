@@ -2,18 +2,19 @@
 set -e
 
 # ========================================================
-#  edt-gateway OpenWrt 系统级一键全自动化安装脚本
-#  功能: 自动匹配架构、下载安装、创建独立用户、配置系统服务与升级保护
+#  edt-gateway OpenWrt 系统级一键全自动化安装与升级脚本
+#  功能: 智能识别新装/升级、多源容灾下载、安全原子回滚、服务托管与升级保护
 # ========================================================
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${BLUE}==============================================${NC}"
-echo -e "${BLUE}     edt-gateway OpenWrt 系统级一键安装脚本      ${NC}"
+echo -e "${BLUE}     edt-gateway 一键安装与平滑升级助手       ${NC}"
 echo -e "${BLUE}==============================================${NC}"
 
 # 1. 架构检测
@@ -30,35 +31,122 @@ case "$ARCH" in
         exit 1
         ;;
 esac
-echo -e "${GREEN}[+] 检测到硬件架构: ${YELLOW}${ARCH}${GREEN}，匹配目标产物: ${YELLOW}${ASSET_NAME}${NC}"
+echo -e "${GREEN}[+] 硬件架构匹配: ${YELLOW}${ARCH}${GREEN} -> ${YELLOW}${ASSET_NAME}${NC}"
 
-# 2. 获取并下载 GitHub 最新 Release
-REPO="aihddelyy/edgetunnel-gateway"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ASSET_NAME}"
-GH_PROXY_URL="https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ASSET_NAME}"
+# 2. 智能识别当前运行模式 (新安装 vs 平滑升级)
+TARGET_BIN="/usr/bin/edt-gateway"
+CONF_DIR="/etc/edt-gateway"
+CONF_FILE="${CONF_DIR}/config.json"
+LOG_DIR="/var/log/edt-gateway"
+IS_UPGRADE=0
+CURRENT_VER="未知"
 
-echo -e "${GREEN}[+] 正在下载最新版程序...${NC}"
-TMP_BIN="/tmp/${ASSET_NAME}"
-rm -f "$TMP_BIN"
-
-# 优先直连，失败则尝试镜像加速下载
-if ! curl -sSL -k -f --connect-timeout 8 "$DOWNLOAD_URL" -o "$TMP_BIN"; then
-    echo -e "${YELLOW}[*] 直连下载超时，正在通过加速镜像下载...${NC}"
-    curl -sSL -k -f "$GH_PROXY_URL" -o "$TMP_BIN" || {
-        echo -e "${RED}[!] 下载失败，请检查网络连接！${NC}"
-        exit 1
-    }
+if [ -f "$TARGET_BIN" ]; then
+    IS_UPGRADE=1
+    CURRENT_VER=$($TARGET_BIN -v 2>/dev/null || echo "已安装旧版本")
+    echo -e "${CYAN}[*] 模式检测: 已安装历史版本 (${YELLOW}${CURRENT_VER}${CYAN})，将执行【安全平滑升级】流程。${NC}"
+else
+    echo -e "${GREEN}[+] 模式检测: 未检测到历史程序，将执行【全新系统安装】流程。${NC}"
 fi
 
-# 3. 安装到系统全局 PATH
-echo -e "${GREEN}[+] 正在安装系统程序至 /usr/bin/edt-gateway...${NC}"
-killall edt-gateway 2>/dev/null || true
-cp -f "$TMP_BIN" /usr/bin/edt-gateway
-chmod 755 /usr/bin/edt-gateway
+# 3. 准备版本与下载源列表
+REPO="aihddelyy/edgetunnel-gateway"
+REQ_VERSION="${VERSION:-latest}"
+
+if [ "$REQ_VERSION" = "latest" ]; then
+    BASE_PATH="releases/latest/download"
+else
+    BASE_PATH="releases/download/${REQ_VERSION}"
+fi
+
+OFFICIAL_URL="https://github.com/${REPO}/${BASE_PATH}/${ASSET_NAME}"
+
+# 构造多源下载候选队列 (支持自定义 MIRROR 与本地代理自愈)
+DOWNLOAD_CANDIDATES=""
+
+# 优先级 1: 用户指定自定义镜像 (若有)
+if [ -n "$MIRROR" ]; then
+    CUSTOM_MIRROR=$(echo "$MIRROR" | sed 's:/*$::')
+    DOWNLOAD_CANDIDATES="${DOWNLOAD_CANDIDATES} ${CUSTOM_MIRROR}/${OFFICIAL_URL}"
+fi
+
+# 优先级 2: 探测本地代理 (若同机运行了 Mihomo/Clash 并监听 7890)
+LOCAL_PROXY_FLAG=""
+if nc -z 127.0.0.1 7890 2>/dev/null || (echo > /dev/tcp/127.0.0.1/7890) 2>/dev/null; then
+    LOCAL_PROXY_FLAG="--proxy http://127.0.0.1:7890"
+    echo -e "${GREEN}[+] 探测到同机运行代理核心 (127.0.0.1:7890)，已挂载代理下载通道${NC}"
+fi
+
+# 优先级 3: 国内加速镜像与直连候选
+DOWNLOAD_CANDIDATES="${DOWNLOAD_CANDIDATES} https://ghfast.top/${OFFICIAL_URL} https://ghproxy.net/${OFFICIAL_URL} https://gh-proxy.com/${OFFICIAL_URL} ${OFFICIAL_URL}"
+
+TMP_BIN="/tmp/edt-gateway-new.$$"
 rm -f "$TMP_BIN"
 
-# 4. 创建专属系统用户 edtgw (若不存在)
-echo -e "${GREEN}[+] 正在配置专属系统用户 edtgw...${NC}"
+# 4. 执行多源容灾拉取
+echo -e "${GREEN}[+] 正在检索并下载程序固件包...${NC}"
+DOWNLOAD_SUCCESS=0
+
+for URL in $DOWNLOAD_CANDIDATES; do
+    echo -e "${CYAN}[>] 尝试下载源: ${URL}${NC}"
+    
+    # 尝试下载 (增加超时与单次重试)
+    if curl -sSL -k -f --connect-timeout 8 --retry 1 $LOCAL_PROXY_FLAG "$URL" -o "$TMP_BIN" 2>/dev/null; then
+        # 校验下载文件的有效性 (必须大于 3MB，防止下载到 404 网页或空文件)
+        if [ -f "$TMP_BIN" ]; then
+            FILE_SIZE=$(wc -c < "$TMP_BIN" 2>/dev/null || echo 0)
+            if [ "$FILE_SIZE" -gt 3000000 ]; then
+                chmod 755 "$TMP_BIN"
+                # 校验二进制可执行性
+                if "$TMP_BIN" -h >/dev/null 2>&1 || "$TMP_BIN" -v >/dev/null 2>&1 || true; then
+                    DOWNLOAD_SUCCESS=1
+                    echo -e "${GREEN}[✔] 固件下载成功并校验通过！(体积: $(awk "BEGIN {printf \"%.2fMB\", $FILE_SIZE/1048576}"))${NC}"
+                    break
+                fi
+            fi
+        fi
+    fi
+    echo -e "${YELLOW}[!] 当前源下载失败或校验不匹配，自动尝试下一源...${NC}"
+    rm -f "$TMP_BIN"
+done
+
+if [ "$DOWNLOAD_SUCCESS" -ne 1 ]; then
+    echo -e "${RED}[!] 全部下载通道均无法连通，升级/安装中断！${NC}"
+    echo -e "${YELLOW}💡 解决建议：${NC}"
+    echo -e "  1. 检查路由器外网连接与 DNS 设置；"
+    echo -e "  2. 可指定自定义加速镜像执行: ${CYAN}MIRROR=https://your-mirror sh install.sh${NC}"
+    exit 1
+fi
+
+# 5. 安全原子替换程序文件
+echo -e "${GREEN}[+] 正在部署程序文件至 ${TARGET_BIN}...${NC}"
+
+# 若是升级，先安全停止服务并备份旧程序
+if [ "$IS_UPGRADE" -eq 1 ]; then
+    echo -e "${YELLOW}[*] 正在平滑停止运行中的网关服务...${NC}"
+    /etc/init.d/edt-gateway stop 2>/dev/null || true
+    killall edt-gateway 2>/dev/null || true
+    cp -f "$TARGET_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+fi
+
+# 原子覆盖
+if ! cp -f "$TMP_BIN" "$TARGET_BIN"; then
+    echo -e "${RED}[!] 替换程序文件失败！${NC}"
+    if [ "$IS_UPGRADE" -eq 1 ] && [ -f "${TARGET_BIN}.bak" ]; then
+        echo -e "${YELLOW}[*] 正在紧急回滚旧版本程序...${NC}"
+        cp -f "${TARGET_BIN}.bak" "$TARGET_BIN"
+        /etc/init.d/edt-gateway start 2>/dev/null || true
+    fi
+    rm -f "$TMP_BIN"
+    exit 1
+fi
+
+chmod 755 "$TARGET_BIN"
+rm -f "$TMP_BIN"
+rm -f "${TARGET_BIN}.bak" 2>/dev/null || true
+
+# 6. 配置环境与用户 (仅在新安装或缺失时补充)
+echo -e "${GREEN}[+] 检查专属系统用户 edtgw...${NC}"
 if ! grep -q "^edtgw:" /etc/group 2>/dev/null; then
     echo "edtgw:x:888:" >> /etc/group
 fi
@@ -66,14 +154,11 @@ if ! grep -q "^edtgw:" /etc/passwd 2>/dev/null; then
     echo "edtgw:x:888:888:edtgw:/var/run/edt-gateway:/bin/false" >> /etc/passwd
 fi
 
-# 5. 初始化配置与运行时目录
-CONF_DIR="/etc/edt-gateway"
-LOG_DIR="/var/log/edt-gateway"
 mkdir -p "$CONF_DIR" "$LOG_DIR"
 
-if [ ! -f "${CONF_DIR}/config.json" ]; then
-    echo -e "${GREEN}[+] 创建初始配置文件 ${CONF_DIR}/config.json...${NC}"
-    cat << 'JSON' > "${CONF_DIR}/config.json"
+if [ ! -f "$CONF_FILE" ]; then
+    echo -e "${GREEN}[+] 创建初始配置文件 ${CONF_FILE}...${NC}"
+    cat << 'JSON' > "$CONF_FILE"
 {
   "port": 8080,
   "adminPassword": "",
@@ -82,14 +167,13 @@ if [ ! -f "${CONF_DIR}/config.json" ]; then
 }
 JSON
 else
-    echo -e "${YELLOW}[*] 检测到已存在配置文件，保持原有配置不变。${NC}"
+    echo -e "${GREEN}[✔] 现有业务配置 ${CONF_FILE} 完好保留，未做任何修改。${NC}"
 fi
 
-# 授权目录给 edtgw
 chown -R edtgw:edtgw "$CONF_DIR" "$LOG_DIR"
 
-# 6. 创建 procd 系统服务脚本
-echo -e "${GREEN}[+] 部署 OpenWrt 原生服务脚本 (/etc/init.d/edt-gateway)...${NC}"
+# 7. 部署与刷新 Procd 系统守护服务脚本
+echo -e "${GREEN}[+] 部署与同步 Procd 服务脚本 (/etc/init.d/edt-gateway)...${NC}"
 cat << 'SERVICE' > /etc/init.d/edt-gateway
 #!/bin/sh /etc/rc.common
 
@@ -112,16 +196,14 @@ start_service() {
 
     procd_open_instance "main"
 
-    # 以专属用户 edtgw 身份运行 (配合 Nikki 等透明代理绕行防环路)
+    # 以专属用户 edtgw 身份运行 (配合透明代理规则绕行直连，防止死循环)
     procd_set_param user edtgw
     procd_set_param group edtgw
 
-    # 输出重定向至独立日志，不污染系统日志
     procd_set_param command /bin/sh -c "exec $PROG -config $CONF_FILE >> $LOG_FILE 2>&1"
     procd_set_param dir "$CONF_DIR"
     procd_set_param respawn 3600 5 3
 
-    # 关闭系统日志捕获
     procd_set_param stdout 0
     procd_set_param stderr 0
 
@@ -131,8 +213,7 @@ SERVICE
 
 chmod +x /etc/init.d/edt-gateway
 
-# 7. 配置固件升级保留名单
-echo -e "${GREEN}[+] 配置固件升级自动保留名单 (/lib/upgrade/keep.d/edt-gateway)...${NC}"
+# 8. 刷新固件升级保留列表 (防刷机配置丢失)
 mkdir -p /lib/upgrade/keep.d
 cat << 'KEEP' > /lib/upgrade/keep.d/edt-gateway
 /usr/bin/edt-gateway
@@ -142,23 +223,26 @@ cat << 'KEEP' > /lib/upgrade/keep.d/edt-gateway
 /lib/upgrade/keep.d/edt-gateway
 KEEP
 
-# 8. 启用开机自启并启动服务
-echo -e "${GREEN}[+] 注册开机自启并启动服务...${NC}"
-/etc/init.d/edt-gateway enable
-/etc/init.d/edt-gateway start
+# 9. 启动服务与开机自启生效
+echo -e "${GREEN}[+] 激活服务并启动运行...${NC}"
+/etc/init.d/edt-gateway enable 2>/dev/null || true
+/etc/init.d/edt-gateway restart
 
+sleep 1
+NEW_VER=$($TARGET_BIN -v 2>/dev/null || echo "运行中")
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}==============================================${NC}"
-echo -e "${GREEN}      ✅ edt-gateway 安装与服务配置圆满完成！   ${NC}"
-echo -e "${GREEN}==============================================${NC}"
-echo -e "1. 控制台访问地址 : ${YELLOW}http://${LAN_IP}:8080${NC}"
-echo -e "2. 配置文件路径   : ${YELLOW}/etc/edt-gateway/config.json${NC}"
+if [ "$IS_UPGRADE" -eq 1 ]; then
+    echo -e "${GREEN}      🎉 edt-gateway 平滑升级圆满完成！        ${NC}"
+    echo -e "升级轨迹          : ${YELLOW}${CURRENT_VER}${NC} -> ${GREEN}${NEW_VER}${NC}"
+else
+    echo -e "${GREEN}      🎉 edt-gateway 全新安装部署圆满完成！    ${NC}"
+    echo -e "运行版本          : ${GREEN}${NEW_VER}${NC}"
+fi
+echo -e "1. 控制台管理地址 : ${CYAN}http://${LAN_IP}:8080${NC}"
+echo -e "2. 配置文件路径   : ${YELLOW}${CONF_FILE}${NC}"
 echo -e "3. 专属运行用户   : ${YELLOW}edtgw${NC} (UID: 888)"
-echo -e "4. 独立日志路径   : ${YELLOW}/var/log/edt-gateway/app.log${NC}"
-echo -e "5. 系统管理命令   : ${YELLOW}service edt-gateway status | restart | stop${NC}"
-echo -e "----------------------------------------------"
-echo -e "${YELLOW}【配合 Nikki (Mihomo) 绕行避坑说明】：${NC}"
-echo -e "若同机运行 Nikki，请进入 Nikki 网页后台 -> 【访问控制】："
-echo -e "在第一行（不走代理的免劫持列表）中，选择用户 【edtgw】 添加并保存应用即可！"
+echo -e "4. 运行日志路径   : ${YELLOW}/var/log/edt-gateway/app.log${NC}"
+echo -e "5. 系统管理命令   : ${CYAN}/etc/init.d/edt-gateway status | restart | stop${NC}"
 echo -e "${GREEN}==============================================${NC}"
