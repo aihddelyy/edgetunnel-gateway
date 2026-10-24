@@ -34,16 +34,18 @@ esac
 echo -e "${GREEN}[+] 硬件架构匹配: ${YELLOW}${ARCH}${GREEN} -> ${YELLOW}${ASSET_NAME}${NC}"
 
 # 2. 智能识别当前运行模式 (新安装 vs 平滑升级)
-TARGET_BIN="/usr/bin/edt-gateway"
 CONF_DIR="/etc/edt-gateway"
+TARGET_BIN="${CONF_DIR}/edt-gateway"
+SYMLINK_BIN="/usr/bin/edt-gateway"
 CONF_FILE="${CONF_DIR}/config.json"
 LOG_DIR="/var/log/edt-gateway"
 IS_UPGRADE=0
 CURRENT_VER="未知"
 
-if [ -f "$TARGET_BIN" ]; then
+# 检查是否存在旧版程序 (兼容检查 /etc/edt-gateway 或历史 /usr/bin)
+if [ -f "$TARGET_BIN" ] || [ -f "$SYMLINK_BIN" ]; then
     IS_UPGRADE=1
-    CURRENT_VER=$($TARGET_BIN -v 2>/dev/null || echo "已安装旧版本")
+    CURRENT_VER=$($TARGET_BIN -v 2>/dev/null || $SYMLINK_BIN -v 2>/dev/null || echo "已安装旧版本")
     echo -e "${CYAN}[*] 模式检测: 已安装历史版本 (${YELLOW}${CURRENT_VER}${CYAN})，将执行【安全平滑升级】流程。${NC}"
 else
     echo -e "${GREEN}[+] 模式检测: 未检测到历史程序，将执行【全新系统安装】流程。${NC}"
@@ -118,34 +120,7 @@ if [ "$DOWNLOAD_SUCCESS" -ne 1 ]; then
     exit 1
 fi
 
-# 5. 安全原子替换程序文件
-echo -e "${GREEN}[+] 正在部署程序文件至 ${TARGET_BIN}...${NC}"
-
-# 若是升级，先安全停止服务并备份旧程序
-if [ "$IS_UPGRADE" -eq 1 ]; then
-    echo -e "${YELLOW}[*] 正在平滑停止运行中的网关服务...${NC}"
-    /etc/init.d/edt-gateway stop 2>/dev/null || true
-    killall edt-gateway 2>/dev/null || true
-    cp -f "$TARGET_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
-fi
-
-# 原子覆盖
-if ! cp -f "$TMP_BIN" "$TARGET_BIN"; then
-    echo -e "${RED}[!] 替换程序文件失败！${NC}"
-    if [ "$IS_UPGRADE" -eq 1 ] && [ -f "${TARGET_BIN}.bak" ]; then
-        echo -e "${YELLOW}[*] 正在紧急回滚旧版本程序...${NC}"
-        cp -f "${TARGET_BIN}.bak" "$TARGET_BIN"
-        /etc/init.d/edt-gateway start 2>/dev/null || true
-    fi
-    rm -f "$TMP_BIN"
-    exit 1
-fi
-
-chmod 755 "$TARGET_BIN"
-rm -f "$TMP_BIN"
-rm -f "${TARGET_BIN}.bak" 2>/dev/null || true
-
-# 6. 配置环境与用户 (仅在新安装或缺失时补充)
+# 5. 配置环境与专属系统用户 edtgw
 echo -e "${GREEN}[+] 检查专属系统用户 edtgw...${NC}"
 if ! grep -q "^edtgw:" /etc/group 2>/dev/null; then
     echo "edtgw:x:888:" >> /etc/group
@@ -170,6 +145,42 @@ else
     echo -e "${GREEN}[✔] 现有业务配置 ${CONF_FILE} 完好保留，未做任何修改。${NC}"
 fi
 
+# 6. 安全原子部署程序文件 (安装至 edtgw 所属的 /etc/edt-gateway，并建立软链接)
+echo -e "${GREEN}[+] 正在部署程序文件至 ${TARGET_BIN}...${NC}"
+
+# 若是升级，先安全停止服务并备份旧程序
+if [ "$IS_UPGRADE" -eq 1 ]; then
+    echo -e "${YELLOW}[*] 正在平滑停止运行中的网关服务...${NC}"
+    /etc/init.d/edt-gateway stop 2>/dev/null || true
+    killall edt-gateway 2>/dev/null || true
+    if [ -f "$TARGET_BIN" ]; then
+        cp -f "$TARGET_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+    elif [ -f "$SYMLINK_BIN" ] && [ ! -L "$SYMLINK_BIN" ]; then
+        cp -f "$SYMLINK_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+    fi
+fi
+
+# 原子覆盖实体程序文件
+if ! cp -f "$TMP_BIN" "$TARGET_BIN"; then
+    echo -e "${RED}[!] 部署程序文件失败！${NC}"
+    if [ "$IS_UPGRADE" -eq 1 ] && [ -f "${TARGET_BIN}.bak" ]; then
+        echo -e "${YELLOW}[*] 正在紧急回滚旧版本程序...${NC}"
+        cp -f "${TARGET_BIN}.bak" "$TARGET_BIN"
+        /etc/init.d/edt-gateway start 2>/dev/null || true
+    fi
+    rm -f "$TMP_BIN"
+    exit 1
+fi
+
+chmod 755 "$TARGET_BIN"
+rm -f "$TMP_BIN"
+rm -f "${TARGET_BIN}.bak" 2>/dev/null || true
+
+# 清理 /usr/bin 旧实体文件并创建符号软链接
+rm -f "$SYMLINK_BIN" 2>/dev/null || true
+ln -sf "$TARGET_BIN" "$SYMLINK_BIN"
+
+# 确保目录和二进制完全属于 edtgw，保障后续 Web 自动更新具备写入与覆盖权限
 chown -R edtgw:edtgw "$CONF_DIR" "$LOG_DIR"
 
 # 7. 部署与刷新 Procd 系统守护服务脚本
@@ -181,7 +192,7 @@ START=95
 STOP=10
 USE_PROCD=1
 
-PROG="/usr/bin/edt-gateway"
+PROG="/etc/edt-gateway/edt-gateway"
 CONF_DIR="/etc/edt-gateway"
 CONF_FILE="${CONF_DIR}/config.json"
 LOG_DIR="/var/log/edt-gateway"
