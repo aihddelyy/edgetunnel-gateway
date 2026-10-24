@@ -53,7 +53,8 @@ fi
 # 3. 安装到系统全局 PATH
 echo -e "${GREEN}[+] 正在安装系统程序至 /usr/bin/edt-gateway...${NC}"
 killall edt-gateway 2>/dev/null || true
-install -m 755 "$TMP_BIN" /usr/bin/edt-gateway
+cp -f "$TMP_BIN" /usr/bin/edt-gateway
+chmod 755 /usr/bin/edt-gateway
 rm -f "$TMP_BIN"
 
 # 4. 创建专属系统用户 edtgw (若不存在)
