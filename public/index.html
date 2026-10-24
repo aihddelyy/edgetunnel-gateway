@@ -65,30 +65,49 @@
           🔄 刷新数据
         </button>
       </div>
-      <div class="grid-4">
-        <!-- 实时下载速率与累计下载量 -->
+      <div class="stats-grid-3x2">
+        <!-- 第 1 排 / 第 1 张: 实时下载速率与累计下载量 -->
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div class="stat-title" style="display: flex; align-items: center; justify-content: space-between;">
               <span>🔻 实时下载速率</span>
               <span id="badge-down-active" class="badge" style="display:none; font-size: 0.68rem; background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); padding: 1px 6px; border-radius: 4px;">传输中</span>
             </div>
-            <div class="stat-val" id="stat-down-speed" style="color: #34d399; font-family: 'JetBrains Mono', monospace; font-size: 1.55rem;">0 B/s</div>
-            <div class="stat-desc" id="stat-total-down" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">累计下载: 0 B</div>
+            <div class="stat-val" id="stat-down-speed" style="color: #34d399; font-family: 'JetBrains Mono', monospace; font-size: 1.65rem;">0 B/s</div>
           </div>
+          <div class="stat-desc" id="stat-total-down" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.4rem;">累计下载: 0 B</div>
         </div>
 
-        <!-- 实时上传速率与累计上传量 -->
+        <!-- 第 1 排 / 第 2 张: 实时上传速率与累计上传量 -->
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div class="stat-title" style="display: flex; align-items: center; justify-content: space-between;">
               <span>🔺 实时上传速率</span>
               <span id="badge-up-active" class="badge" style="display:none; font-size: 0.68rem; background: rgba(96, 165, 250, 0.15); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3); padding: 1px 6px; border-radius: 4px;">传输中</span>
             </div>
-            <div class="stat-val" id="stat-up-speed" style="color: #60a5fa; font-family: 'JetBrains Mono', monospace; font-size: 1.55rem;">0 B/s</div>
-            <div class="stat-desc" id="stat-total-up" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">累计上传: 0 B</div>
+            <div class="stat-val" id="stat-up-speed" style="color: #60a5fa; font-family: 'JetBrains Mono', monospace; font-size: 1.65rem;">0 B/s</div>
+          </div>
+          <div class="stat-desc" id="stat-total-up" style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.4rem;">累计上传: 0 B</div>
+        </div>
+
+        <!-- 第 1 排 / 第 3 张: 系统已运行时长与内存健康 -->
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="stat-title">💻 系统已运行时长</div>
+              <button type="button" class="btn btn-sm" id="btn-manual-gc" onclick="triggerManualGcAction()" title="执行深度内存回收并释放闲置连接与底层缓冲区" style="padding: 2px 8px; font-size: 0.72rem; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer;">
+                ⚡ 立即回收
+              </button>
+            </div>
+            <div class="stat-val" id="stat-uptime" style="font-size: 1.45rem;">0 分钟</div>
+          </div>
+          <div class="stat-desc" id="stat-memory" style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.4rem;">
+            <span id="stat-memory-text">内存占用: -- MB</span>
+            <span id="stat-memory-pill" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.7rem; padding: 1px 6px;">健康</span>
           </div>
         </div>
+
+        <!-- 第 2 排 / 第 1 张: XHTTP (Worker) 请求数 -->
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div class="stat-title">🔶 XHTTP (Worker) 请求数</div>
@@ -99,6 +118,8 @@
             <svg id="sparkline-xhttp" width="100%" height="36" style="display: block; overflow: visible;"></svg>
           </div>
         </div>
+
+        <!-- 第 2 排 / 第 2 张: WS (Pages) 请求数 -->
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div class="stat-title">⚡️ WS (Pages) 请求数</div>
@@ -109,22 +130,16 @@
             <svg id="sparkline-ws" width="100%" height="36" style="display: block; overflow: visible;"></svg>
           </div>
         </div>
-        <div class="card">
-          <div class="stat-title">健康熔断阻断次数</div>
-          <div class="stat-val" style="color: #fbbf24;" id="stat-circuit">0</div>
-          <div class="stat-desc">1101 / 502 / 429 故障隔离</div>
-        </div>
-        <div class="card" style="position: relative;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="stat-title">系统已运行时长</div>
-            <button type="button" class="btn btn-sm" id="btn-manual-gc" onclick="triggerManualGcAction()" title="执行深度内存回收并释放闲置连接与底层缓冲区" style="padding: 2px 8px; font-size: 0.72rem; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer;">
-              ⚡ 立即回收
-            </button>
+
+        <!-- 第 2 排 / 第 3 张: 健康熔断阻断次数 -->
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="stat-title">🛡️ 健康熔断阻断次数</div>
+            <div class="stat-val" style="color: #fbbf24;" id="stat-circuit">0</div>
+            <div class="stat-desc">1101 / 502 / 429 故障隔离</div>
           </div>
-          <div class="stat-val" id="stat-uptime">0 分钟</div>
-          <div class="stat-desc" id="stat-memory" style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-            <span id="stat-memory-text">内存占用: -- MB</span>
-            <span id="stat-memory-pill" class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.7rem; padding: 1px 6px;">健康</span>
+          <div style="margin-top: 0.75rem; height: 36px; display: flex; align-items: flex-end; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.4rem;">
+            <span style="font-size: 0.74rem; color: var(--text-muted);">自动剔除异常节点并触发首包秒级重试</span>
           </div>
         </div>
       </div>
