@@ -270,5 +270,8 @@ curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetun
 - **Release 多通道镜像探测回退**：
   官方 `api.github.com` 受阻或超时时，自动通过加速镜像以 302 重定向及 Raw 版本文件双通道探测最新版本，保证国内直连 100% 成功检查更新。
 - **自定义加速镜像与智能选择 UI**：
-  在 Web 控制台在线更新面板中，支持内置镜像快捷切换（`ghfast.top`、`ghproxy.net`）与**用户自定义镜像前缀输入**，支持本地记忆存储 (`localStorage`)，并在检查与下载更新时全链路优先调度。
+  在 Web 控制台在线更新面板中，支持内置三大主流镜像快捷切换（`ghfast.top`、`ghproxy.net`、`gh-proxy.com`）与**用户自定义镜像前缀输入**，支持本地记忆存储 (`localStorage`)，并在检查与下载更新时全链路优先调度。
+- **非 root 用户运行与自更新权限治理**：
+  为彻底解决网关以无特权用户 `edtgw` 运行时，因对系统目录 `/usr/bin` 缺乏写权限导致的 `permission denied` 报错，实体程序统一规范部署至 `/etc/edt-gateway/edt-gateway` 并整体授权 `edtgw:edtgw`，在 `/usr/bin/edt-gateway` 挂载系统软链接。更新程序在同分区所属目录内创建临时文件和执行原子重命名，自此实现在线无感自愈升级。
+
 
