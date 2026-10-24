@@ -127,15 +127,6 @@ start_service() {
 
     procd_close_instance
 }
-
-stop_service() {
-    killall edt-gateway 2>/dev/null
-}
-
-reload_service() {
-    stop
-    start
-}
 SERVICE
 
 chmod +x /etc/init.d/edt-gateway
@@ -154,7 +145,7 @@ KEEP
 # 8. 启用开机自启并启动服务
 echo -e "${GREEN}[+] 注册开机自启并启动服务...${NC}"
 /etc/init.d/edt-gateway enable
-/etc/init.d/edt-gateway restart
+/etc/init.d/edt-gateway start
 
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null || echo "127.0.0.1")
 
