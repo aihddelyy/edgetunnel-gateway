@@ -1,5 +1,20 @@
 # 变更日志 (CHANGELOG)
 
+## [v1.1.10] - 2026-10-24
+
+### 🛡️ 根治同机部署 Mihomo (Fake-IP) 导致的更新黑洞与新增自定义加速镜像通道
+- **Anti-FakeIP 穿透 DNS 纯净拨号引擎 (`pkg/updater`)**：
+  - 新增 `198.18.0.0/15`（RFC 2544 基准测试保留段）智能识别机制。
+  - 在 OpenWrt 等同机运行 Mihomo/Clash（Fake-IP 模式）环境下，`edt-gateway` 直连放行流量不再会被虚拟 Fake-IP 诱导进入物理 WAN 口公网丢包黑洞；
+  - 自动穿透直连阿里公共 DNS（`223.5.5.5`）、腾讯 DNSPod（`119.29.29.29`）与 Cloudflare DNS（`1.1.1.1`）获取真实公网 IP，彻底免疫 Fake-IP 污染。
+- **GitHub Release 多通道多级容灾探测 (Multi-Channel Fallback)**：
+  - 检查更新（`CheckForUpdate`）不再单点依赖官方 API，在大陆直连受限或阻断时，自动回退到加速镜像通过 302 重定向及远端 Raw 版本指纹探测最新发布，保证 100% 成功检查更新。
+- **自定义加速镜像支持与智能持久化管理 (Web UI)**：
+  - 在系统更新模态窗中新增镜像控制栏，内置 `ghfast.top`、`ghproxy.net` 快捷切换与**自定义镜像前缀输入**支持；
+  - 用户的镜像偏好自动存储至浏览器本地缓存（`localStorage`），并在检查与下载更新时全链路优先调度。
+
+---
+
 ## [v1.0.9] - 2026-10-24
 
 ### 🎯 活跃优选服务器 (Prefer Nodes) 实施规则 A 稳定排序
