@@ -506,9 +506,20 @@ let isPausedLog = false;
         return;
       }
 
-      if (badge) badge.innerText = `${nodes.length} 个节点`;
+      // 规则 A 稳定排序: 1. 默认兜底置顶; 2. 请求量从大到小降序; 3. 目标名称保序
+      const sortedNodes = [...nodes].sort((a, b) => {
+        if (a.isDefault !== b.isDefault) {
+          return a.isDefault ? -1 : 1;
+        }
+        const reqA = (a.requestCount !== undefined ? a.requestCount : ((a.successReqs || 0) + (a.failReqs || 0))) || 0;
+        const reqB = (b.requestCount !== undefined ? b.requestCount : ((b.successReqs || 0) + (b.failReqs || 0))) || 0;
+        if (reqB !== reqA) {
+          return reqB - reqA;
+        }
+        return (a.target || '').localeCompare(b.target || '');
+      });
 
-      container.innerHTML = nodes.map(n => {
+      container.innerHTML = sortedNodes.map(n => {
         const isDefault = !!n.isDefault;
         const targetStr = escapeHtml(n.target);
 

@@ -1,7 +1,7 @@
 package version
 
 // CurrentVersion 当前网关版本号
-const CurrentVersion = "v1.0.8"
+const CurrentVersion = "v1.0.9"
 
 // RepoOwner 官方 GitHub 仓库所有者
 const RepoOwner = "aihddelyy"

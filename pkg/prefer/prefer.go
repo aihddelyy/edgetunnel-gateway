@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -311,6 +312,21 @@ func (m *Manager) GetNodesList() []model.PreferNode {
 	for _, n := range m.nodes {
 		list = append(list, *n)
 	}
+
+	// 规则 A 稳定排序：
+	// 1. 默认兜底节点始终排在第 1 位
+	// 2. 业务请求量 (RequestCount) 从大到小降序
+	// 3. 请求量相同时按 Target 字典序稳定排列，防止刷新时跳动
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].IsDefault != list[j].IsDefault {
+			return list[i].IsDefault
+		}
+		if list[i].RequestCount != list[j].RequestCount {
+			return list[i].RequestCount > list[j].RequestCount
+		}
+		return list[i].Target < list[j].Target
+	})
+
 	return list
 }
 
