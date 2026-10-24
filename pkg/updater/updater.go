@@ -98,6 +98,7 @@ func CleanMirrorURL(raw string) string {
 var defaultMirrors = []string{
 	"https://ghfast.top/",
 	"https://ghproxy.net/",
+	"https://gh-proxy.com/",
 }
 
 // CheckForUpdate 查询 GitHub 官方 Releases 仓库的最新发布版本 (支持自定义镜像与镜像回退)
