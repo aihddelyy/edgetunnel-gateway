@@ -41,8 +41,9 @@ if [ -f "/etc/init.d/edt-gateway" ]; then
     /etc/init.d/edt-gateway disable 2>/dev/null || true
 fi
 
-# 确保所有相关进程完全退出
+# 确保所有相关进程完全退出 (兼顾 killall 与 pkill)
 killall -9 edt-gateway 2>/dev/null || true
+pkill -9 -f edt-gateway 2>/dev/null || true
 
 # 3. 移除系统服务脚本与自启软链接
 echo -e "${CYAN}[2/6] 清理 Procd 系统服务脚本与 rc.d 软链接...${NC}"
@@ -50,10 +51,11 @@ rm -f /etc/init.d/edt-gateway 2>/dev/null || true
 rm -f /etc/rc.d/S*edt-gateway 2>/dev/null || true
 rm -f /etc/rc.d/K*edt-gateway 2>/dev/null || true
 
-# 4. 移除系统软链接与固件升级保护
-echo -e "${CYAN}[3/6] 清理系统命令软链接与固件保留规则...${NC}"
-rm -f /usr/bin/edt-gateway 2>/dev/null || true
+# 4. 移除系统命令、软链接与固件升级保护 (兼顾早期实体程序直接存放在 /usr/bin 的旧版本)
+echo -e "${CYAN}[3/6] 清理系统命令与固件保留规则...${NC}"
+rm -f /usr/bin/edt-gateway /usr/bin/edt-gateway.bak 2>/dev/null || true
 rm -f /lib/upgrade/keep.d/edt-gateway 2>/dev/null || true
+rm -rf /tmp/edt-gateway* /var/run/edt-gateway 2>/dev/null || true
 
 # 5. 清理运行日志目录
 echo -e "${CYAN}[4/6] 清理系统运行日志 (/var/log/edt-gateway)...${NC}"
@@ -68,7 +70,7 @@ if [ "$PURGE" -eq 1 ]; then
     rm -rf "$CONF_DIR" 2>/dev/null || true
 else
     echo -e "${CYAN}[5/6] 正在清理程序二进制文件，保留配置文件与历史备份...${NC}"
-    rm -f "$TARGET_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+    rm -f "${CONF_DIR}/edt-gateway"* 2>/dev/null || true
     echo -e "${GREEN}[✔] 配置文件已保留在: ${YELLOW}${CONF_DIR}/config.json${NC}"
 fi
 

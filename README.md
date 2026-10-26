@@ -84,16 +84,16 @@ curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_vers
 curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/install.sh | sh
 ```
 
-#### OpenWrt 一键卸载与清理
+#### OpenWrt 一键卸载与清理（适用于所有新旧版本）
 若需要卸载网关服务：
 ```bash
-# 默认保留配置文件与历史备份（推荐）
+# 默认保留配置文件与历史备份（推荐，日后重装自动继承原有配置）
 curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh
 
 # 国内加速镜像
 curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh
 
-# 彻底清除所有数据（包括配置文件 /etc/edt-gateway）
+# 彻底清除所有数据（包括配置文件与备份 /etc/edt-gateway）
 curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh -s -- --purge
 ```
 
