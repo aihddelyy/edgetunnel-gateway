@@ -256,20 +256,18 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		resp, err := transport.RoundTrip(outReq)
 		if err != nil {
 			_ = pw.Close()
-			if !health.IsNetworkTransportError(err.Error()) {
-				g.healthMgr.MarkBackendFailure(backendSni, err.Error())
-			}
-			logger.Warnf("[XHTTP 传输异常 #%s -> %s]: %v", clientTag, backendSni, err)
+			logger.Warnf("[%s 优选链路传输异常 #%s -> %s]: %v (优选服务器不可达，不轮换后端)", protoLabel, clientTag, targetServer, err)
 			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
-			continue
+			// 优选服务器底层异常，严禁归咎于 Worker 后端或在同一失效优选上无谓轮换后端
+			return
 		}
 
-		// 遇到冷启动或阻断状态码 (1101, 502, 429, 521)，立即关闭并由备用节点重放首包
+		// 核心准则：仅在已连接上优选服务器后，收到后端明确返回阻断状态码 (1101, 502, 429, 521, 503) 时，才触发后端熔断与轮换
 		if resp.StatusCode == 1101 || resp.StatusCode == 502 || resp.StatusCode == 429 || resp.StatusCode == 521 || resp.StatusCode == 503 {
 			_ = resp.Body.Close()
 			_ = pw.Close()
 			g.healthMgr.MarkBackendFailure(backendSni, fmt.Sprintf("HTTP %d", resp.StatusCode))
-			logger.Warnf("[XHTTP 触发熔断/Failover #%s -> %s]: 收到阻断状态码 %d", clientTag, backendSni, resp.StatusCode)
+			logger.Warnf("[%s 收到后端阻断状态码/触发熔断与轮换 #%s -> %s]: HTTP %d", protoLabel, clientTag, backendSni, resp.StatusCode)
 			continue
 		}
 

@@ -506,6 +506,8 @@ let isPausedLog = false;
         return;
       }
 
+      if (badge) badge.innerText = `${nodes.length} 个节点`;
+
       // 规则 A 稳定排序: 1. 默认兜底置顶; 2. 请求量从大到小降序; 3. 目标名称保序
       const sortedNodes = [...nodes].sort((a, b) => {
         if (a.isDefault !== b.isDefault) {

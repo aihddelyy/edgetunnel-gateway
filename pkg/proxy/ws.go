@@ -168,18 +168,19 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		targetAddr := net.JoinHostPort(connectHost, strconv.Itoa(connectPort))
 		rawRemote, err := dialer.DialTimeout("tcp", targetAddr, 7*time.Second)
 		if err != nil {
-			logger.Warnf("[WS 优选链路连接失败 #%s -> %s]: %v", clientTag, targetAddr, err)
+			logger.Warnf("[WS 优选链路连接失败 #%s -> %s]: %v (优选服务器不可达，不轮换后端)", clientTag, targetAddr, err)
 			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
-			continue
+			// 优选服务器底层未建连，严禁归咎于后端或在同一失效优选上无谓轮换后端
+			return
 		}
 
 		remoteConn := tls.Client(rawRemote, tlsConfig)
 		_ = remoteConn.SetDeadline(time.Now().Add(7 * time.Second))
 		if err := remoteConn.Handshake(); err != nil {
 			remoteConn.Close()
-			logger.Warnf("[WS TLS 握手失败 #%s -> %s]: %v", clientTag, backendSni, err)
-			g.healthMgr.MarkBackendFailure(backendSni, err.Error())
-			continue
+			logger.Warnf("[WS 优选链路握手失败 #%s -> %s]: %v", clientTag, targetAddr, err)
+			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
+			return
 		}
 
 		// Construct HTTP GET request
@@ -192,7 +193,7 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		if _, err := remoteConn.Write(reqBuf.Bytes()); err != nil {
 			bytesBufferPool.Put(reqBuf)
 			remoteConn.Close()
-			continue
+			return
 		}
 		bytesBufferPool.Put(reqBuf)
 
@@ -201,15 +202,15 @@ func (g *WSGateway) handleWS(w http.ResponseWriter, r *http.Request) {
 		resp, err := http.ReadResponse(remoteReader, r)
 		if err != nil {
 			remoteConn.Close()
-			g.healthMgr.MarkBackendFailure(backendSni, err.Error())
-			continue
+			return
 		}
 
+		// 核心准则：仅在已连接上优选服务器后，收到后端明确返回异常状态码时，才触发后端熔断并尝试轮换到备用 Pages 后端
 		if resp.StatusCode != http.StatusSwitchingProtocols {
 			resp.Body.Close()
 			remoteConn.Close()
 			g.healthMgr.MarkBackendFailure(backendSni, fmt.Sprintf("HTTP %d", resp.StatusCode))
-			logger.Warnf("[WS 远端握手未通过 #%s -> %s]: 返回状态码 %d", clientTag, backendSni, resp.StatusCode)
+			logger.Warnf("[WS 远端握手未通过/触发后端熔断与轮换 #%s -> %s]: 收到阻断状态码 %d", clientTag, backendSni, resp.StatusCode)
 			continue
 		}
 
