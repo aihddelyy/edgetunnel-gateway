@@ -84,6 +84,19 @@ curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_vers
 curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/install.sh | sh
 ```
 
+#### OpenWrt 一键卸载与清理
+若需要卸载网关服务：
+```bash
+# 默认保留配置文件与历史备份（推荐）
+curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh
+
+# 国内加速镜像
+curl -sSL https://ghfast.top/https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh
+
+# 彻底清除所有数据（包括配置文件 /etc/edt-gateway）
+curl -sSL https://raw.githubusercontent.com/aihddelyy/edgetunnel-gateway/go_version/uninstall.sh | sh -s -- --purge
+```
+
 #### 方式二：手动轻量运行（适合常规 Linux VPS）
 ```bash
 # 进入部署目录（以 /root/edgetunnel-lb 为例）
