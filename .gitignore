@@ -12,3 +12,16 @@ config.json
 backups/
 traffic*.json
 *.log
+
+# Local development memories & private notes (严禁推送到远程仓库)
+PROJECT_MEMORIES.md
+*MEMORIES*.md
+docs/DEVELOPMENT_MEMORY.md
+*DEVELOPMENT_MEMORY*.md
+
+# Local Windows build scripts (本地编译脚本，不推送到远程)
+build.ps1
+*.ps1
+
+
+
