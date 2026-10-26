@@ -48,30 +48,13 @@ go_version/
 │   └── web/
 │       ├── web.go            # 8789 端口 REST API 与 SSE 接口 (内置免依赖自重启)
 │       └── public/           # 内嵌的前端 Web 控制台静态资源 (HTML/CSS/JS)
-├── build.ps1                 # Linux AMD64 & ARM64 一键极速交叉编译脚本
 ├── config.example.json       # 配置示例模板
 └── go.mod
 ```
 
 ---
 
-## 🚀 编译与运行
-
-### 1. 极速交叉编译（Windows PowerShell）
-
-项目内置了 [build.ps1](build.ps1) 编译脚本，一键构建 Linux AMD64 (x86_64) 与 ARM64 (aarch64) 单二进制：
-
-```powershell
-.\build.ps1
-```
-
-编译产物：
-- `edt-gateway-linux-amd64`：适用于主流 x86 软路由、PVE、ESXi、群晖 NAS、常规 VPS。
-- `edt-gateway-linux-arm64`：适用于 NanoPi R4S/R5S、斐讯 N1、树莓派等 ARM 架构。
-
----
-
-### 2. 部署运行（OpenWrt 软路由 / VPS）
+## 🚀 部署运行（OpenWrt 软路由 / VPS）
 
 #### 方式一：OpenWrt 系统级全自动一键安装（强烈推荐）
 在 OpenWrt 终端（SSH）执行以下命令，自动完成架构识别、安装、专属独立用户创建、系统服务与开机自启、固件升级防丢失配置：
@@ -125,14 +108,7 @@ nohup ./edt-gateway-linux-amd64 -config config.json > app.log 2>&1 &
 - 📊 **指标卡片多维呈现**：D1 SQL、R2 存储、KV 空间指标详情展示；
 - 🔄 **Web 一键平滑自重启**：右上角【重启网关】一键延迟脱离自拉起（自动解绑端口后无缝接管）。
 
----
 
-## 📖 全周期开发与运维记忆文档
-
-本项目经历了从 Node.js 原始版本到 Go 高性能架构的大重构，包含大量 OpenWrt 部署排坑实战、流量防死循环机制与设计决策：
-- 完整开发上下文与排坑记忆详见：[PROJECT_MEMORIES.md](PROJECT_MEMORIES.md)
-
----
 
 ## 🛡️ 与 Nikki (Mihomo / Clash.Meta) 同机协同避坑指南
 
