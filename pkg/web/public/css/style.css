@@ -162,6 +162,7 @@
     }
     .stat-title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
     .stat-val { font-size: 1.75rem; font-weight: 700; color: white; }
+    #stat-xhttp, #stat-ws, #stat-circuit, #stat-down-speed, #stat-up-speed { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
     #stat-uptime { font-size: 1.22rem; font-weight: 600; line-height: 1.45; color: #60a5fa; word-break: keep-all; }
     .stat-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem; }
 
