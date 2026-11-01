@@ -148,33 +148,39 @@ fi
 # 6. 安全原子部署程序文件 (安装至 edtgw 所属的 /etc/edt-gateway，并建立软链接)
 echo -e "${GREEN}[+] 正在部署程序文件至 ${TARGET_BIN}...${NC}"
 
-# 若是升级，先安全停止服务并备份旧程序
+# 将旧版本备份存放在基于 RAM 的 /tmp 内存目录中，避免挤占受限的 /overlay 根分区闪存空间
+RAM_BAK_BIN="/tmp/edt-gateway-old.$$"
+rm -f "$RAM_BAK_BIN"
+
+# 若是升级，先安全停止服务并备份旧程序至内存
 if [ "$IS_UPGRADE" -eq 1 ]; then
     echo -e "${YELLOW}[*] 正在平滑停止运行中的网关服务...${NC}"
     /etc/init.d/edt-gateway stop 2>/dev/null || true
     killall edt-gateway 2>/dev/null || true
     if [ -f "$TARGET_BIN" ]; then
-        cp -f "$TARGET_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+        mv -f "$TARGET_BIN" "$RAM_BAK_BIN" 2>/dev/null || cp -f "$TARGET_BIN" "$RAM_BAK_BIN" 2>/dev/null || true
     elif [ -f "$SYMLINK_BIN" ] && [ ! -L "$SYMLINK_BIN" ]; then
-        cp -f "$SYMLINK_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
+        mv -f "$SYMLINK_BIN" "$RAM_BAK_BIN" 2>/dev/null || cp -f "$SYMLINK_BIN" "$RAM_BAK_BIN" 2>/dev/null || true
     fi
 fi
 
-# 原子覆盖实体程序文件
-if ! cp -f "$TMP_BIN" "$TARGET_BIN"; then
-    echo -e "${RED}[!] 部署程序文件失败！${NC}"
-    if [ "$IS_UPGRADE" -eq 1 ] && [ -f "${TARGET_BIN}.bak" ]; then
-        echo -e "${YELLOW}[*] 正在紧急回滚旧版本程序...${NC}"
-        cp -f "${TARGET_BIN}.bak" "$TARGET_BIN"
+# 清理历史可能残留的 *.bak 冗余，腾出闪存空间
+rm -f "${TARGET_BIN}.bak" 2>/dev/null || true
+
+# 将新程序移入目标位置 (优先原子 mv，失败则 cp 兜底)
+if ! mv -f "$TMP_BIN" "$TARGET_BIN" 2>/dev/null && ! cp -f "$TMP_BIN" "$TARGET_BIN"; then
+    echo -e "${RED}[!] 部署程序文件失败！(磁盘空间不足或文件系统只读)${NC}"
+    if [ "$IS_UPGRADE" -eq 1 ] && [ -f "$RAM_BAK_BIN" ]; then
+        echo -e "${YELLOW}[*] 正在从内存紧急回滚旧版本程序...${NC}"
+        mv -f "$RAM_BAK_BIN" "$TARGET_BIN" 2>/dev/null || cp -f "$RAM_BAK_BIN" "$TARGET_BIN" 2>/dev/null || true
         /etc/init.d/edt-gateway start 2>/dev/null || true
     fi
-    rm -f "$TMP_BIN"
+    rm -f "$TMP_BIN" "$RAM_BAK_BIN" 2>/dev/null || true
     exit 1
 fi
 
 chmod 755 "$TARGET_BIN"
-rm -f "$TMP_BIN"
-rm -f "${TARGET_BIN}.bak" 2>/dev/null || true
+rm -f "$TMP_BIN" "$RAM_BAK_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
 
 # 清理 /usr/bin 旧实体文件并创建符号软链接
 rm -f "$SYMLINK_BIN" 2>/dev/null || true
