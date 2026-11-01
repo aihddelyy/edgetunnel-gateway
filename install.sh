@@ -202,8 +202,12 @@ start_service() {
     [ -f "$PROG" ] || return 1
     [ -f "$CONF_FILE" ] || return 1
 
+    # 固件升级自愈：若升级后 /etc/passwd 或 /etc/group 被重置，自动补充专属用户
+    grep -q "^edtgw:" /etc/group 2>/dev/null || echo "edtgw:x:888:" >> /etc/group
+    grep -q "^edtgw:" /etc/passwd 2>/dev/null || echo "edtgw:x:888:888:edtgw:/var/run/edt-gateway:/bin/false" >> /etc/passwd
+
     mkdir -p "$LOG_DIR"
-    chown -R edtgw:edtgw "$LOG_DIR"
+    chown -R edtgw:edtgw "$LOG_DIR" "$CONF_DIR" 2>/dev/null || true
 
     procd_open_instance "main"
 
