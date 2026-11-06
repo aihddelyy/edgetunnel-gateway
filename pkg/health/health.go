@@ -183,9 +183,11 @@ func (m *Manager) GetHealthyBackends(list []string, excludeBackends []string, ca
 		return list
 	}
 
-	// 2. 过滤处于熔断隔离期的节点
-	m.mu.Lock()
+	// 2. 过滤处于熔断隔离期的节点（读写分离：优先只读锁，避免高并发流量热点写锁自旋）
+	var toClean []string
 	var unblocked []string
+
+	m.mu.RLock()
 	for _, b := range baseList {
 		s, exists := m.health[b]
 		if !exists {
@@ -193,8 +195,7 @@ func (m *Manager) GetHealthyBackends(list []string, excludeBackends []string, ca
 			continue
 		}
 		if !s.IsHealthy && now > s.BlockUntil {
-			logger.Infof("[Circuit Breaker] ⏱️ 后端 %s 隔离期已满，重新加入轮询探活。", b)
-			delete(m.health, b)
+			toClean = append(toClean, b)
 			unblocked = append(unblocked, b)
 			continue
 		}
@@ -202,7 +203,19 @@ func (m *Manager) GetHealthyBackends(list []string, excludeBackends []string, ca
 			unblocked = append(unblocked, b)
 		}
 	}
-	m.mu.Unlock()
+	m.mu.RUnlock()
+
+	// 仅在存在过期隔离节点时才升级写锁执行删除
+	if len(toClean) > 0 {
+		m.mu.Lock()
+		for _, b := range toClean {
+			if s, exists := m.health[b]; exists && !s.IsHealthy && now > s.BlockUntil {
+				logger.Infof("[Circuit Breaker] ⏱️ 后端 %s 隔离期已满，重新加入轮询探活。", b)
+				delete(m.health, b)
+			}
+		}
+		m.mu.Unlock()
+	}
 
 	candidateList := unblocked
 	if len(candidateList) == 0 {

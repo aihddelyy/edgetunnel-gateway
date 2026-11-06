@@ -967,6 +967,13 @@ func (m *Manager) checkAndTriggerQuotaAlert(accounts []model.CFAccountBrief, cfg
 	}
 	todayStr := time.Now().Format("2006-01-02")
 
+	// 清理非当天的历史告警标记，防止跨天内存无限累积泄漏
+	for k := range m.alertedToday {
+		if !strings.HasPrefix(k, todayStr) {
+			delete(m.alertedToday, k)
+		}
+	}
+
 	for _, acc := range accounts {
 		if acc.Error != "" {
 			continue

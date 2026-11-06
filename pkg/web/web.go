@@ -147,7 +147,16 @@ func (s *Server) createSession(username string, days int) string {
 	_, _ = rand.Read(b)
 	token := hex.EncodeToString(b)
 
+	now := time.Now().UnixMilli()
 	s.sessionsMu.Lock()
+	// 定期清理已过期的 Session 记录，防止内存泄漏
+	if len(s.sessions) > 64 {
+		for k, v := range s.sessions {
+			if now > v.ExpiresAt {
+				delete(s.sessions, k)
+			}
+		}
+	}
 	s.sessions[token] = SessionInfo{
 		Username:  username,
 		ExpiresAt: time.Now().Add(time.Duration(days) * 24 * time.Hour).UnixMilli(),
@@ -454,13 +463,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				if newCfg.DefaultPrefer != "" {
 					c.DefaultPrefer = newCfg.DefaultPrefer
 				}
-				if len(newCfg.DNS) > 0 {
+				if newCfg.DNS != nil {
 					c.DNS = newCfg.DNS
 				}
-				if len(newCfg.WorkerBackends) > 0 {
+				if newCfg.WorkerBackends != nil {
 					c.WorkerBackends = newCfg.WorkerBackends
 				}
-				if len(newCfg.PagesBackends) > 0 {
+				if newCfg.PagesBackends != nil {
 					c.PagesBackends = newCfg.PagesBackends
 				}
 				if newCfg.CFQuotaAvoidThreshold > 0 {
@@ -475,10 +484,11 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 				if newCfg.QuotaDisplayMode != "" {
 					c.QuotaDisplayMode = newCfg.QuotaDisplayMode
 				}
-				if newCfg.Telegram.BotToken != "" || newCfg.Telegram.ChatID != "" {
-					c.Telegram = newCfg.Telegram
-					c.Telegram.ChatID = config.CleanTelegramChatID(c.Telegram.ChatID)
+				if newCfg.MemoryGuard.ThresholdMB > 0 {
+					c.MemoryGuard = newCfg.MemoryGuard
 				}
+				c.Telegram = newCfg.Telegram
+				c.Telegram.ChatID = config.CleanTelegramChatID(c.Telegram.ChatID)
 			})
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": err.Error()})

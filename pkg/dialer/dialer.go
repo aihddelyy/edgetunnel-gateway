@@ -150,6 +150,21 @@ func (r *CleanResolver) updateCache(host string, ips []string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// 防止缓存无限制膨胀（LRU/TTL 周期清理）
+	const maxCacheSize = 256
+	if len(r.cache) >= maxCacheSize {
+		now := time.Now()
+		for k, v := range r.cache {
+			if now.After(v.expiresAt) {
+				delete(r.cache, k)
+			}
+		}
+		if len(r.cache) >= maxCacheSize {
+			r.cache = make(map[string]cacheEntry)
+		}
+	}
+
 	r.cache[host] = cacheEntry{
 		ips:       ips,
 		expiresAt: time.Now().Add(r.ttl),
@@ -162,7 +177,7 @@ func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	return DialContextWithTimeout(ctx, network, addr, 10*time.Second)
 }
 
-// DialContextWithTimeout 带自定义超时时限的纯净拨号器
+// DialContextWithTimeout 带自定义超时时限的纯净拨号器（支持多 IP 错峰竞速快速建连）
 func DialContextWithTimeout(ctx context.Context, network, addr string, timeout time.Duration) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -183,14 +198,69 @@ func DialContextWithTimeout(ctx context.Context, network, addr string, timeout t
 		KeepAlive: 30 * time.Second,
 	}
 
+	if len(ips) == 1 {
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
+	}
+
+	// 多 IP 错峰竞速拨号 (Happy Eyeballs 机制)：首个 IP 超时 300ms 未建连即并发尝试后续 IP，谁先通先用谁，杜绝串行长超时卡顿
+	type dialResult struct {
+		conn net.Conn
+		err  error
+	}
+
+	dialCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	resCh := make(chan dialResult, len(ips))
+	remaining := len(ips)
 	var lastErr error
-	for _, ipStr := range ips {
+
+	for i, ipStr := range ips {
 		targetAddr := net.JoinHostPort(ipStr, port)
-		conn, dialErr := dialer.DialContext(ctx, network, targetAddr)
-		if dialErr == nil {
-			return conn, nil
+
+		go func(addr string) {
+			conn, dErr := dialer.DialContext(dialCtx, network, addr)
+			if dErr != nil {
+				resCh <- dialResult{err: dErr}
+				return
+			}
+			select {
+			case resCh <- dialResult{conn: conn}:
+			case <-dialCtx.Done():
+				// 已有更快连接抢先胜出，立即关闭冗余连接，杜绝连接泄露
+				_ = conn.Close()
+			}
+		}(targetAddr)
+
+		if i < len(ips)-1 {
+			timer := time.NewTimer(300 * time.Millisecond)
+			select {
+			case res := <-resCh:
+				timer.Stop()
+				remaining--
+				if res.conn != nil {
+					return res.conn, nil
+				}
+				lastErr = res.err
+			case <-timer.C:
+			case <-dialCtx.Done():
+				timer.Stop()
+				return nil, dialCtx.Err()
+			}
 		}
-		lastErr = dialErr
+	}
+
+	for remaining > 0 {
+		select {
+		case res := <-resCh:
+			remaining--
+			if res.conn != nil {
+				return res.conn, nil
+			}
+			lastErr = res.err
+		case <-dialCtx.Done():
+			return nil, dialCtx.Err()
+		}
 	}
 
 	return nil, fmt.Errorf("连接目标 %s (%v) 失败: %w", addr, ips, lastErr)

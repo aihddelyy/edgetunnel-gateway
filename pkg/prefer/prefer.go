@@ -93,6 +93,16 @@ func ParsePreferAndCleanPath(rawPath string, defaultPrefer string) (string, stri
 		return defaultPrefer, "/"
 	}
 
+	// 快速路径：若路径中不含 prefer=，直接跳过所有正则匹配与替换开销
+	lower := strings.ToLower(rawPath)
+	if !strings.Contains(lower, "prefer=") {
+		cleaned := strings.TrimRight(rawPath, "/")
+		if cleaned == "" {
+			cleaned = "/"
+		}
+		return defaultPrefer, cleaned
+	}
+
 	target := ""
 	matches := preferRegex.FindStringSubmatch(rawPath)
 	if len(matches) > 1 {

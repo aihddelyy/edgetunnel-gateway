@@ -26,6 +26,11 @@ import (
 	"edgetunnel-lb/pkg/traffic"
 )
 
+type transportEntry struct {
+	transport *http2.Transport
+	lastUsed  time.Time
+}
+
 type XHTTPGateway struct {
 	cfgMgr    *config.Manager
 	healthMgr *health.Manager
@@ -36,8 +41,8 @@ type XHTTPGateway struct {
 	server   *http.Server
 	listener net.Listener
 
-	transportsMu sync.RWMutex
-	transports   map[string]*http2.Transport
+	transportsMu sync.Mutex
+	transports   map[string]*transportEntry
 }
 
 func NewXHTTPGateway(cfgMgr *config.Manager, healthMgr *health.Manager, preferMgr *prefer.Manager, quotaMgr *quota.Manager, metrics *model.Metrics) *XHTTPGateway {
@@ -47,7 +52,7 @@ func NewXHTTPGateway(cfgMgr *config.Manager, healthMgr *health.Manager, preferMg
 		preferMgr:  preferMgr,
 		quotaMgr:   quotaMgr,
 		metrics:    metrics,
-		transports: make(map[string]*http2.Transport),
+		transports: make(map[string]*transportEntry),
 	}
 }
 
@@ -102,6 +107,13 @@ func (g *XHTTPGateway) Start() error {
 }
 
 func (g *XHTTPGateway) Close() error {
+	g.transportsMu.Lock()
+	for _, entry := range g.transports {
+		entry.transport.CloseIdleConnections()
+	}
+	g.transports = make(map[string]*transportEntry)
+	g.transportsMu.Unlock()
+
 	if g.server != nil {
 		return g.server.Close()
 	}
@@ -111,22 +123,38 @@ func (g *XHTTPGateway) Close() error {
 func (g *XHTTPGateway) getOrCreateTransport(connectHost string, connectPort int, backendSni string) *http2.Transport {
 	key := fmt.Sprintf("%s:%d#%s", connectHost, connectPort, backendSni)
 
-	g.transportsMu.RLock()
-	t, exists := g.transports[key]
-	g.transportsMu.RUnlock()
-	if exists {
-		return t
-	}
-
 	g.transportsMu.Lock()
 	defer g.transportsMu.Unlock()
 
-	if t, exists := g.transports[key]; exists {
-		return t
+	now := time.Now()
+	if entry, exists := g.transports[key]; exists {
+		entry.lastUsed = now
+		return entry.transport
+	}
+
+	// LRU 淘汰：若超过 64 个，淘汰最久未使用的 Transport 并关闭连接
+	const maxTransports = 64
+	if len(g.transports) >= maxTransports {
+		var oldestKey string
+		var oldestTime time.Time
+		first := true
+		for k, v := range g.transports {
+			if first || v.lastUsed.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.lastUsed
+				first = false
+			}
+		}
+		if oldestKey != "" {
+			if oldEntry, ok := g.transports[oldestKey]; ok {
+				oldEntry.transport.CloseIdleConnections()
+				delete(g.transports, oldestKey)
+			}
+		}
 	}
 
 	targetAddr := net.JoinHostPort(connectHost, strconv.Itoa(connectPort))
-	t = &http2.Transport{
+	t := &http2.Transport{
 		TLSClientConfig: &tls.Config{
 			ServerName:         backendSni,
 			InsecureSkipVerify: true,
@@ -149,7 +177,10 @@ func (g *XHTTPGateway) getOrCreateTransport(connectHost string, connectPort int,
 		PingTimeout:     10 * time.Second,
 	}
 
-	g.transports[key] = t
+	g.transports[key] = &transportEntry{
+		transport: t,
+		lastUsed:  now,
+	}
 	return t
 }
 
@@ -211,29 +242,41 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		// 建立全双工实时上行数据管道
 		pr, pw := io.Pipe()
 
+		handshakePassed := make(chan struct{})
+		abortRetry := make(chan struct{})
+
 		go func(writer *io.PipeWriter) {
 			countingDest := &traffic.CountingWriter{
 				Writer:  writer,
 				OnWrite: traffic.GlobalTracker.RecordTx,
 			}
-			// 先发送握手数据
+			// 1. 先仅发送暂存的握手首包
 			if len(handshakeBytes) > 0 {
 				if _, wErr := countingDest.Write(handshakeBytes); wErr != nil {
 					_ = writer.CloseWithError(wErr)
 					return
 				}
 			}
-			// 再无缝接管客户端后续持续灌入的上行数据
-			_, copyErr := io.Copy(countingDest, r.Body)
-			if copyErr != nil {
-				_ = writer.CloseWithError(copyErr)
-			} else {
+
+			// 2. 关键防御：在远端握手成功前绝不读取 r.Body，避免重试时后续数据已被消费截断
+			select {
+			case <-handshakePassed:
+				// 握手通过，无缝接管客户端后续持续灌入的上行数据
+				_, copyErr := io.Copy(countingDest, r.Body)
+				if copyErr != nil {
+					_ = writer.CloseWithError(copyErr)
+				} else {
+					_ = writer.Close()
+				}
+			case <-abortRetry:
+				// 握手被阻断，终止当前管道并保留完整的 r.Body 供下一轮重试
 				_ = writer.Close()
 			}
 		}(pw)
 
 		outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL, pr)
 		if err != nil {
+			close(abortRetry)
 			_ = pw.Close()
 			continue
 		}
@@ -255,6 +298,7 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		transport := g.getOrCreateTransport(connectHost, connectPort, backendSni)
 		resp, err := transport.RoundTrip(outReq)
 		if err != nil {
+			close(abortRetry)
 			_ = pw.Close()
 			logger.Warnf("[%s 优选链路传输异常 #%s -> %s]: %v (优选服务器不可达，不轮换后端)", protoLabel, clientTag, targetServer, err)
 			g.preferMgr.RecordResponse(targetServer, 0, "error", err.Error())
@@ -265,13 +309,16 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 		// 核心准则：仅在已连接上优选服务器后，收到后端明确返回阻断状态码 (1101, 502, 429, 521, 503) 时，才触发后端熔断与轮换
 		if resp.StatusCode == 1101 || resp.StatusCode == 502 || resp.StatusCode == 429 || resp.StatusCode == 521 || resp.StatusCode == 503 {
 			_ = resp.Body.Close()
+			close(abortRetry) // 通知当前管道安全退出，不消费客户端后续 r.Body
 			_ = pw.Close()
 			g.healthMgr.MarkBackendFailure(backendSni, fmt.Sprintf("HTTP %d", resp.StatusCode))
 			logger.Warnf("[%s 收到后端阻断状态码/触发熔断与轮换 #%s -> %s]: HTTP %d", protoLabel, clientTag, backendSni, resp.StatusCode)
 			continue
 		}
 
-		// 握手成功！
+		// 握手成功！解除阻塞，开始持续流式转发客户端后续数据
+		close(handshakePassed)
+
 		elapsed := int(time.Since(startTime).Milliseconds())
 		g.healthMgr.MarkBackendSuccess(backendSni)
 		g.preferMgr.RecordResponse(targetServer, elapsed, "ok", fmt.Sprintf("HTTP %d", resp.StatusCode))
@@ -301,7 +348,10 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 			nr, er := resp.Body.Read(downBuf)
 			if nr > 0 {
 				traffic.GlobalTracker.RecordRx(int64(nr))
-				_, _ = w.Write(downBuf[:nr])
+				if _, wErr := w.Write(downBuf[:nr]); wErr != nil {
+					// 客户端已提前断开连接，立即退出并关闭远端流，避免无效流量消耗
+					break
+				}
 				if isFlusher {
 					flusher.Flush()
 				}

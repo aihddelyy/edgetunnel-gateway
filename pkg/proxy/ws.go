@@ -244,7 +244,7 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 
 		var src io.Reader = c1
 		if r1 != nil {
-			src = io.MultiReader(r1, c1)
+			src = r1
 		}
 		dest := &traffic.CountingWriter{
 			Writer:  c2,
@@ -261,7 +261,7 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 
 		var src io.Reader = c2
 		if r2 != nil {
-			src = io.MultiReader(r2, c2)
+			src = r2
 		}
 		dest := &traffic.CountingWriter{
 			Writer:  c1,
@@ -271,7 +271,10 @@ func pipeConn(c1 net.Conn, r1 io.Reader, c2 net.Conn, r2 io.Reader) {
 		errCh <- err
 	}()
 
+	// 任何一端断开或异常，立刻双向关闭连接
 	<-errCh
 	_ = c1.Close()
 	_ = c2.Close()
+	// 等待对向 goroutine 响应关闭并退出，确保连接与缓冲彻底释放
+	<-errCh
 }
