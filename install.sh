@@ -38,7 +38,6 @@ CONF_DIR="/etc/edt-gateway"
 TARGET_BIN="${CONF_DIR}/edt-gateway"
 SYMLINK_BIN="/usr/bin/edt-gateway"
 CONF_FILE="${CONF_DIR}/config.json"
-LOG_DIR="/var/log/edt-gateway"
 IS_UPGRADE=0
 CURRENT_VER="未知"
 
@@ -129,7 +128,7 @@ if ! grep -q "^edtgw:" /etc/passwd 2>/dev/null; then
     echo "edtgw:x:888:888:edtgw:/var/run/edt-gateway:/bin/false" >> /etc/passwd
 fi
 
-mkdir -p "$CONF_DIR" "$LOG_DIR"
+mkdir -p "$CONF_DIR"
 
 if [ ! -f "$CONF_FILE" ]; then
     echo -e "${GREEN}[+] 创建初始配置文件 ${CONF_FILE}...${NC}"
@@ -186,10 +185,10 @@ rm -f "$TMP_BIN" "$RAM_BAK_BIN" "${TARGET_BIN}.bak" 2>/dev/null || true
 rm -f "$SYMLINK_BIN" 2>/dev/null || true
 ln -sf "$TARGET_BIN" "$SYMLINK_BIN"
 
-# 确保目录和二进制完全属于 edtgw，保障后续 Web 自动更新具备写入与覆盖权限
-chown -R edtgw:edtgw "$CONF_DIR" "$LOG_DIR"
+# 确保配置目录完全属于 edtgw，保障后续 Web 自动更新具备写入与覆盖权限
+chown -R edtgw:edtgw "$CONF_DIR"
 
-# 7. 部署与刷新 Procd 系统守护服务脚本
+# 7. 部署与刷新 Procd 系统守护服务脚本 (零磁盘写入，日志重定向到 /dev/null)
 echo -e "${GREEN}[+] 部署与同步 Procd 服务脚本 (/etc/init.d/edt-gateway)...${NC}"
 cat << 'SERVICE' > /etc/init.d/edt-gateway
 #!/bin/sh /etc/rc.common
@@ -201,8 +200,6 @@ USE_PROCD=1
 PROG="/etc/edt-gateway/edt-gateway"
 CONF_DIR="/etc/edt-gateway"
 CONF_FILE="${CONF_DIR}/config.json"
-LOG_DIR="/var/log/edt-gateway"
-LOG_FILE="${LOG_DIR}/app.log"
 
 start_service() {
     [ -f "$PROG" ] || return 1
@@ -212,8 +209,7 @@ start_service() {
     grep -q "^edtgw:" /etc/group 2>/dev/null || echo "edtgw:x:888:" >> /etc/group
     grep -q "^edtgw:" /etc/passwd 2>/dev/null || echo "edtgw:x:888:888:edtgw:/var/run/edt-gateway:/bin/false" >> /etc/passwd
 
-    mkdir -p "$LOG_DIR"
-    chown -R edtgw:edtgw "$LOG_DIR" "$CONF_DIR" 2>/dev/null || true
+    chown -R edtgw:edtgw "$CONF_DIR" 2>/dev/null || true
 
     procd_open_instance "main"
 
@@ -221,7 +217,8 @@ start_service() {
     procd_set_param user edtgw
     procd_set_param group edtgw
 
-    procd_set_param command /bin/sh -c "exec $PROG -config $CONF_FILE >> $LOG_FILE 2>&1"
+    # 零磁盘开销：直接输出到 /dev/null，彻底杜绝日志撑爆 Flash 闪存
+    procd_set_param command /bin/sh -c "exec $PROG -config $CONF_FILE > /dev/null 2>&1"
     procd_set_param dir "$CONF_DIR"
     procd_set_param respawn 3600 5 3
 
@@ -264,6 +261,6 @@ fi
 echo -e "1. 控制台管理地址 : ${CYAN}http://${LAN_IP}:8080${NC}"
 echo -e "2. 配置文件路径   : ${YELLOW}${CONF_FILE}${NC}"
 echo -e "3. 专属运行用户   : ${YELLOW}edtgw${NC} (UID: 888)"
-echo -e "4. 运行日志路径   : ${YELLOW}/var/log/edt-gateway/app.log${NC}"
+echo -e "4. 实时控制台日志 : ${GREEN}Web 控制台【实时日志】(基于内存环形缓冲区，0 磁盘开销)${NC}"
 echo -e "5. 系统管理命令   : ${CYAN}/etc/init.d/edt-gateway status | restart | stop${NC}"
 echo -e "${GREEN}==============================================${NC}"
