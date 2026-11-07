@@ -4,12 +4,10 @@ package updater
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"edgetunnel-lb/pkg/logger"
 )
