@@ -211,9 +211,6 @@ start_service() {
 
     chown -R edtgw:edtgw "$CONF_DIR" 2>/dev/null || true
 
-    # 防多实例重入：启动前清理历史意外残留的孤儿进程，防止端口被占用假死
-    killall -q -9 edt-gateway 2>/dev/null || true
-
     procd_open_instance "main"
 
     # 以专属用户 edtgw 身份运行 (配合透明代理规则绕行直连，防止死循环)
