@@ -250,7 +250,7 @@ set +e # 进入收尾与展示阶段，避免非致命警告或信号阻断退�
 /etc/init.d/edt-gateway start >/dev/null 2>&1 || /etc/init.d/edt-gateway restart >/dev/null 2>&1 || true
 
 sleep 1
-NEW_VER=$($TARGET_BIN -v 2>/dev/null || echo "v1.1.4")
+NEW_VER=$($TARGET_BIN -v 2>/dev/null || echo "${REQ_VERSION}")
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}==============================================${NC}"
