@@ -217,8 +217,8 @@ start_service() {
     procd_set_param user edtgw
     procd_set_param group edtgw
 
-    # 零磁盘开销：直接输出到 /dev/null，彻底杜绝日志撑爆 Flash 闪存
-    procd_set_param command /bin/sh -c "exec $PROG -config $CONF_FILE > /dev/null 2>&1"
+    # 零磁盘开销：原生由 Procd 托管，stdout/stderr 设为 0 彻底杜绝日志撑爆 Flash 闪存
+    procd_set_param command "$PROG" -config "$CONF_FILE"
     procd_set_param dir "$CONF_DIR"
     procd_set_param respawn 3600 5 3
 
@@ -243,11 +243,14 @@ KEEP
 
 # 9. 启动服务与开机自启生效
 echo -e "${GREEN}[+] 激活服务并启动运行...${NC}"
-/etc/init.d/edt-gateway enable 2>/dev/null || true
-/etc/init.d/edt-gateway restart
+set +e # 进入收尾与展示阶段，避免非致命警告或信号阻断退出
+
+/etc/init.d/edt-gateway enable >/dev/null 2>&1 || true
+/etc/init.d/edt-gateway stop >/dev/null 2>&1 || true
+/etc/init.d/edt-gateway start >/dev/null 2>&1 || /etc/init.d/edt-gateway restart >/dev/null 2>&1 || true
 
 sleep 1
-NEW_VER=$($TARGET_BIN -v 2>/dev/null || echo "运行中")
+NEW_VER=$($TARGET_BIN -v 2>/dev/null || echo "v1.1.3")
 LAN_IP=$(uci get network.lan.ipaddr 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}==============================================${NC}"

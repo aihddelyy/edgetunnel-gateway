@@ -18,18 +18,28 @@ import (
 	"edgetunnel-lb/pkg/prefer"
 	"edgetunnel-lb/pkg/proxy"
 	"edgetunnel-lb/pkg/quota"
+	"edgetunnel-lb/pkg/version"
 	"edgetunnel-lb/pkg/web"
 )
 
 func main() {
+	// 命令行参数解析
+	verFlag := flag.Bool("v", false, "显示网关当前版本")
+	versionFlag := flag.Bool("version", false, "显示网关当前版本")
+	configPath := flag.String("config", "config.json", "配置文件路径")
+	flag.Parse()
+
+	// 快速退出分支：毫秒级响应版本查询，0 内存膨胀
+	if *verFlag || *versionFlag {
+		fmt.Println(version.CurrentVersion)
+		return
+	}
+
 	// 针对嵌入式/软路由环境优化 Go 运行时内存：
 	// 1. 设置更敏捷的 GC 百分比 (25%)，防止堆内存膨胀
 	// 2. 设置 30MB 软内存上限，引导运行时及时将未使用的页归还给 Linux 内核
 	debug.SetGCPercent(25)
 	debug.SetMemoryLimit(30 * 1024 * 1024)
-
-	configPath := flag.String("config", "config.json", "配置文件路径")
-	flag.Parse()
 
 	metrics := &model.Metrics{
 		StartTime: time.Now().Unix(),
