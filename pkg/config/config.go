@@ -129,6 +129,30 @@ func (m *Manager) load() error {
 	return nil
 }
 
+// writeFileAtomic 原子写入文件：先写入同目录临时文件并刷盘，再通过 os.Rename 原子覆盖，防止断电或闪存满导致配置文件损坏变空
+func writeFileAtomic(targetPath string, data []byte, perm os.FileMode) error {
+	tmpPath := targetPath + ".tmp"
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, targetPath)
+}
+
 func (m *Manager) Save(newCfg model.Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -136,13 +160,13 @@ func (m *Manager) Save(newCfg model.Config) error {
 	// 1. 创建备份
 	m.createBackupUnlocked()
 
-	// 2. 写入新配置
+	// 2. 原子写入新配置
 	data, err := json.MarshalIndent(newCfg, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(m.configPath, data, 0644); err != nil {
+	if err := writeFileAtomic(m.configPath, data, 0644); err != nil {
 		return err
 	}
 
@@ -166,7 +190,7 @@ func (m *Manager) Update(fn func(cfg *model.Config)) error {
 		return err
 	}
 
-	return os.WriteFile(m.configPath, data, 0644)
+	return writeFileAtomic(m.configPath, data, 0644)
 }
 
 func (m *Manager) createBackupUnlocked() {
@@ -182,9 +206,10 @@ func (m *Manager) createBackupUnlocked() {
 	backupFile := filepath.Join(m.backupDir, fmt.Sprintf("config-%s.json", timestamp))
 	_ = os.WriteFile(backupFile, data, 0644)
 
-	// Keep only latest 10 backups
+	// 精简保留最新 5 份快照备份，节省软路由受限闪存空间
+	const maxBackups = 5
 	entries, err := os.ReadDir(m.backupDir)
-	if err == nil && len(entries) > 10 {
+	if err == nil && len(entries) > maxBackups {
 		var files []string
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasPrefix(e.Name(), "config-") && strings.HasSuffix(e.Name(), ".json") {
@@ -192,7 +217,7 @@ func (m *Manager) createBackupUnlocked() {
 			}
 		}
 		sort.Strings(files)
-		for i := 0; i < len(files)-10; i++ {
+		for i := 0; i < len(files)-maxBackups; i++ {
 			_ = os.Remove(files[i])
 		}
 	}

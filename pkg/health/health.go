@@ -56,13 +56,7 @@ func IsNetworkTransportError(reason string) bool {
 	return networkTransportRegex.MatchString(reason)
 }
 
-func (m *Manager) RecordBackendReq(backend string, isSuccess bool) {
-	if backend == "" {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *Manager) recordBackendReqLocked(backend string, isSuccess bool) {
 	stat, exists := m.stats[backend]
 	if !exists {
 		stat = &model.BackendStat{}
@@ -76,21 +70,31 @@ func (m *Manager) RecordBackendReq(backend string, isSuccess bool) {
 	}
 }
 
+func (m *Manager) RecordBackendReq(backend string, isSuccess bool) {
+	if backend == "" {
+		return
+	}
+	m.mu.Lock()
+	m.recordBackendReqLocked(backend, isSuccess)
+	m.mu.Unlock()
+}
+
 func (m *Manager) MarkBackendSuccess(backend string) {
 	if backend == "" {
 		return
 	}
-	m.RecordBackendReq(backend, true)
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.recordBackendReqLocked(backend, true)
 	m.failureCounts[backend] = 0
 	state, exists := m.health[backend]
 	if exists && !state.IsHealthy {
-		logger.Infof("[Health Check] \033[32m后端 %s 传输成功，熔断解除，静默恢复健康池！\033[0m", backend)
 		delete(m.health, backend)
+		m.mu.Unlock()
+		logger.Infof("[Health Check] \033[32m后端 %s 传输成功，熔断解除，静默恢复健康池！\033[0m", backend)
+		return
 	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) MarkBackendFailure(backend, reason string) {
@@ -98,37 +102,37 @@ func (m *Manager) MarkBackendFailure(backend, reason string) {
 		return
 	}
 
-	m.RecordBackendReq(backend, false)
-
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.recordBackendReqLocked(backend, false)
 	m.failureCounts[backend]++
 	currentFails := m.failureCounts[backend]
 
 	existing, exists := m.health[backend]
 	if exists && !existing.IsHealthy {
+		m.mu.Unlock()
 		return
 	}
 
 	if currentFails >= FailureThreshold {
-		if m.metrics != nil {
-			atomic.AddInt64(&m.metrics.CircuitTrips, 1)
-		}
-		logger.Warnf("[Circuit Breaker] \033[33m⚠️ 熔断告警: 后端 %s 连续遭遇 %d 次明确阻断 [%s]，自动隔离 %v\033[0m",
-			backend, currentFails, reason, CircuitBreakerTTL)
-
 		blockUntil := time.Now().Add(CircuitBreakerTTL).UnixMilli()
 		m.health[backend] = &model.HealthState{
 			IsHealthy:  false,
 			BlockUntil: blockUntil,
 			Reason:     reason,
 		}
+		m.mu.Unlock()
+
+		if m.metrics != nil {
+			atomic.AddInt64(&m.metrics.CircuitTrips, 1)
+		}
+		logger.Warnf("[Circuit Breaker] \033[33m⚠️ 熔断告警: 后端 %s 连续遭遇 %d 次明确阻断 [%s]，自动隔离 %v\033[0m",
+			backend, currentFails, reason, CircuitBreakerTTL)
 
 		if notifySender := notify.GetTelegram(); notifySender != nil {
 			notifySender.SendCircuitAlert(backend, reason)
 		}
 	} else {
+		m.mu.Unlock()
 		logger.Warnf("[Health Check] ⚠️ 后端 %s 遇到异常 [%s] (连续失败 %d/%d 次，暂不熔断)",
 			backend, reason, currentFails, FailureThreshold)
 	}

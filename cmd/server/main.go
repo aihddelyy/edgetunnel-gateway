@@ -62,20 +62,26 @@ func main() {
 	// 2. 打印启动横幅
 	printBanner(cfg)
 
-	// 3. 启动三大服务
+	// 3. 启动三大服务（严格端口冲突自检：任一核心端口绑定失败立即退出，严禁空壳残废进程常驻）
 	wsGW := proxy.NewWSGateway(cfgMgr, healthMgr, prefMgr, quotaMgr, metrics)
 	if err := wsGW.Start(); err != nil {
 		logger.Errorf("启动 WebSocket 网关失败 (端口 %d): %v", cfg.HTTPPort, err)
+		os.Exit(1)
 	}
 
 	xhttpGW := proxy.NewXHTTPGateway(cfgMgr, healthMgr, prefMgr, quotaMgr, metrics)
 	if err := xhttpGW.Start(); err != nil {
 		logger.Errorf("启动 XHTTP 双模网关失败 (端口 %d): %v", cfg.H2CPort, err)
+		_ = wsGW.Close()
+		os.Exit(1)
 	}
 
 	webServer := web.NewWebServer(cfgMgr, healthMgr, prefMgr, quotaMgr, metrics)
 	if err := webServer.Start(); err != nil {
 		logger.Errorf("启动 Web 控制台失败 (端口 %d): %v", cfg.WebPort, err)
+		_ = wsGW.Close()
+		_ = xhttpGW.Close()
+		os.Exit(1)
 	}
 
 	if cfg.Telegram.BotToken != "" {

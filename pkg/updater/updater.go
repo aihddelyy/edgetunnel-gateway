@@ -294,8 +294,15 @@ func ApplyUpdate(downloadURL string, useMirror bool, customMirror string, proxyU
 	}
 
 	exeDir := filepath.Dir(exePath)
-	tmpPath := filepath.Join(exeDir, fmt.Sprintf(".update_%d.tmp", time.Now().UnixNano()))
-	bakPath := filepath.Join(exeDir, fmt.Sprintf(".backup_%d.bak", time.Now().UnixNano()))
+	workDir := exeDir
+	// Linux/OpenWrt 下优先使用基于 RAM 的 /tmp 内存盘存放下载包与备份，避免挤爆受限的 /overlay 闪存
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat("/tmp"); err == nil && info.IsDir() {
+			workDir = "/tmp"
+		}
+	}
+	tmpPath := filepath.Join(workDir, fmt.Sprintf(".edt_update_%d.tmp", time.Now().UnixNano()))
+	bakPath := filepath.Join(workDir, fmt.Sprintf(".edt_backup_%d.bak", time.Now().UnixNano()))
 
 	// 2. 准备下载 URLs (支持自定义镜像、内置镜像与直连多级回退)
 	var tryURLs []string
@@ -368,7 +375,7 @@ func ApplyUpdate(downloadURL string, useMirror bool, customMirror string, proxyU
 		return err
 	}
 
-	// 4. 原子覆盖替换
+	// 4. 原子覆盖替换（支持跨文件系统 /tmp -> /overlay 零闪存峰值置换）
 	setProgress(UpdateProgress{
 		State:   "replacing",
 		Percent: 99,
@@ -376,17 +383,18 @@ func ApplyUpdate(downloadURL string, useMirror bool, customMirror string, proxyU
 	})
 
 	_ = os.Remove(bakPath)
-	if err := os.Rename(exePath, bakPath); err != nil {
+	if err := moveOrCopyFile(exePath, bakPath, 0755); err != nil {
 		_ = os.Remove(tmpPath)
 		err = fmt.Errorf("备份原程序失败 (可能缺少目录写入权限): %w", err)
 		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
 		return err
 	}
 
-	if err := os.Rename(tmpPath, exePath); err != nil {
-		// 覆盖失败，立即安全回滚原程序
-		_ = os.Rename(bakPath, exePath)
+	if err := moveOrCopyFile(tmpPath, exePath, 0755); err != nil {
+		// 覆盖失败，立即从备份安全回滚原程序
+		_ = moveOrCopyFile(bakPath, exePath, 0755)
 		_ = os.Remove(tmpPath)
+		_ = os.Remove(bakPath)
 		err = fmt.Errorf("替换新版本可执行文件失败，已自动回滚原版本: %w", err)
 		setProgress(UpdateProgress{State: "error", Message: err.Error(), Error: err.Error()})
 		return err
@@ -409,6 +417,45 @@ func ApplyUpdate(downloadURL string, useMirror bool, customMirror string, proxyU
 		RestartExe(exePath, os.Args[1:])
 	}()
 
+	return nil
+}
+
+// moveOrCopyFile 优先尝试同分区 os.Rename，若跨分区 (EXDEV，如 /tmp -> /overlay) 则复制后删除源文件
+func moveOrCopyFile(src, dst string, mode os.FileMode) error {
+	if err := os.Rename(src, dst); err == nil {
+		_ = os.Chmod(dst, mode)
+		return nil
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	// 若目标文件正在运行（Linux ETXTBSY），先 unlink 移除旧目录项再创建新文件写入
+	_ = os.Remove(dst)
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+
+	_ = os.Chmod(dst, mode)
+	in.Close()
+	_ = os.Remove(src)
 	return nil
 }
 

@@ -170,10 +170,7 @@ func (m *Manager) RecordRequest(target string, clientIP string, isDefault ...boo
 
 	node, _ := m.getOrCreateNodeLocked(target, isDefault...)
 	node.RequestCount++
-
-	now := time.Now()
-	node.LastSeen = now.UnixMilli()
-	node.LastSeenTime = now.Format("15:04:05")
+	node.LastSeen = time.Now().UnixMilli()
 
 	// 处理客户端来源 IP（去端口、去重、最多保留 5 个最近活跃设备）
 	if clientIP != "" {
@@ -211,9 +208,7 @@ func (m *Manager) RecordResponse(target string, latencyMs int, status, reason st
 	defer m.mu.Unlock()
 
 	node, _ := m.getOrCreateNodeLocked(target)
-	now := time.Now()
-	node.LastSeen = now.UnixMilli()
-	node.LastSeenTime = now.Format("15:04:05")
+	node.LastSeen = time.Now().UnixMilli()
 
 	if latencyMs > 0 {
 		node.LastLatency = latencyMs
@@ -321,7 +316,13 @@ func (m *Manager) GetNodesList() []model.PreferNode {
 
 	list := make([]model.PreferNode, 0, len(m.nodes))
 	for _, n := range m.nodes {
-		list = append(list, *n)
+		cp := *n
+		if cp.LastSeen > 0 && cp.LastSeenTime == "" {
+			cp.LastSeenTime = time.UnixMilli(cp.LastSeen).Format("15:04:05")
+		} else if cp.LastSeen > 0 {
+			cp.LastSeenTime = time.UnixMilli(cp.LastSeen).Format("15:04:05")
+		}
+		list = append(list, cp)
 	}
 
 	// 规则 A 稳定排序：

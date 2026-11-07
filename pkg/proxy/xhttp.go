@@ -261,8 +261,10 @@ func (g *XHTTPGateway) handleWorkerForward(w http.ResponseWriter, r *http.Reques
 			// 2. 关键防御：在远端握手成功前绝不读取 r.Body，避免重试时后续数据已被消费截断
 			select {
 			case <-handshakePassed:
-				// 握手通过，无缝接管客户端后续持续灌入的上行数据
-				_, copyErr := io.Copy(countingDest, r.Body)
+				// 握手通过，无缝接管客户端后续持续灌入的上行数据（复用 32KB 内存池，零堆分配）
+				upBufPtr := GetBuffer32k()
+				_, copyErr := io.CopyBuffer(countingDest, r.Body, *upBufPtr)
+				PutBuffer32k(upBufPtr)
 				if copyErr != nil {
 					_ = writer.CloseWithError(copyErr)
 				} else {

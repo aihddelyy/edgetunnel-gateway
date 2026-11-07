@@ -15,7 +15,7 @@ import (
 
 // 默认纯净出站 DNS 服务器列表（直接面向公网）
 var defaultPublicDNS = []string{
-	"223.5.5.5:53",   // 阿里公共 DNS (默认)
+	"223.5.5.5:53",    // 阿里公共 DNS (默认)
 	"119.29.29.29:53", // 腾讯 DNSPod (默认)
 }
 
@@ -24,9 +24,16 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
+type dnsCall struct {
+	wg  sync.WaitGroup
+	ips []string
+	err error
+}
+
 type CleanResolver struct {
 	mu        sync.RWMutex
 	cache     map[string]cacheEntry
+	inflight  map[string]*dnsCall
 	publicDNS []string
 	ttl       time.Duration
 }
@@ -41,6 +48,7 @@ func GetDefaultResolver() *CleanResolver {
 	defaultResolverOnce.Do(func() {
 		defaultResolver = &CleanResolver{
 			cache:     make(map[string]cacheEntry),
+			inflight:  make(map[string]*dnsCall),
 			publicDNS: defaultPublicDNS,
 			ttl:       2 * time.Minute, // 缓存 2 分钟，兼顾高并发与动态 IP 刷新
 		}
@@ -103,9 +111,37 @@ func (r *CleanResolver) Resolve(ctx context.Context, host string) ([]string, err
 			return entry.ips, nil
 		}
 	}
+	r.mu.RUnlock()
+
+	// 2.5 Singleflight 并发合并：同一时刻对同一域名的解析仅发起 1 次网络查询，防缓存击穿与日志刷屏
+	r.mu.Lock()
+	if entry, found := r.cache[hostLower]; found {
+		if time.Now().Before(entry.expiresAt) && len(entry.ips) > 0 {
+			r.mu.Unlock()
+			return entry.ips, nil
+		}
+	}
+	if r.inflight == nil {
+		r.inflight = make(map[string]*dnsCall)
+	}
+	if call, ok := r.inflight[hostLower]; ok {
+		r.mu.Unlock()
+		call.wg.Wait()
+		return call.ips, call.err
+	}
+	call := &dnsCall{}
+	call.wg.Add(1)
+	r.inflight[hostLower] = call
 	dnsServers := make([]string, len(r.publicDNS))
 	copy(dnsServers, r.publicDNS)
-	r.mu.RUnlock()
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		delete(r.inflight, hostLower)
+		r.mu.Unlock()
+		call.wg.Done()
+	}()
 
 	// 3. 依次向配置的纯净 DNS 服务器发起 UDP 53 解析
 	var lastErr error
@@ -127,6 +163,7 @@ func (r *CleanResolver) Resolve(ctx context.Context, host string) ([]string, err
 			if len(cleanList) > 0 {
 				logger.Infof("[DNS] ✅ 域名 %s 通过纯净 DNS (%s) 成功解析: %v", host, dnsServer, cleanList)
 				r.updateCache(hostLower, cleanList)
+				call.ips = cleanList
 				return cleanList, nil
 			}
 		}
@@ -134,9 +171,11 @@ func (r *CleanResolver) Resolve(ctx context.Context, host string) ([]string, err
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("解析域名 %s 失败 (纯净 DNS %v 均无法解析): %w", host, dnsServers, lastErr)
+		call.err = fmt.Errorf("解析域名 %s 失败 (纯净 DNS %v 均无法解析): %w", host, dnsServers, lastErr)
+		return nil, call.err
 	}
-	return nil, fmt.Errorf("解析域名 %s 失败: 未返回任何有效 IP", host)
+	call.err = fmt.Errorf("解析域名 %s 失败: 未返回任何有效 IP", host)
+	return nil, call.err
 }
 
 // ResolveClean 兼容保留 ResolveClean 别名
@@ -170,7 +209,6 @@ func (r *CleanResolver) updateCache(host string, ips []string) {
 		expiresAt: time.Now().Add(r.ttl),
 	}
 }
-
 
 // DialContext 核心纯净拨号器（满足标准 http.Transport.DialContext 签名）：自动完成 anti-fakeip 域名解析并建立 TCP 连接
 func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {

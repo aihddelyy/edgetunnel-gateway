@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -76,6 +77,11 @@ func (s *Server) Start() error {
 	cfg := s.cfgMgr.Get()
 	addr := fmt.Sprintf(":%d", cfg.WebPort)
 
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
@@ -86,7 +92,7 @@ func (s *Server) Start() error {
 
 	logger.Infof("🖥️ [Web 控制台与 API] 监听端口: http://0.0.0.0:%d", cfg.WebPort)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(l); err != nil && err != http.ErrServerClosed {
 			logger.Errorf("[Web 控制台] 服务异常: %v", err)
 		}
 	}()

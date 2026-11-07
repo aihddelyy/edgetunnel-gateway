@@ -4,6 +4,7 @@ package updater
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,17 @@ func runRestartProcess(exe string, args []string) error {
 	// 去除 Linux 下旧进程被 unlink 后带有的 " (deleted)" 标记
 	exe = strings.TrimSuffix(strings.TrimSpace(exe), " (deleted)")
 	exeDir := filepath.Dir(exe)
+
+	// 确保二进制具备可执行权限
+	_ = syscall.Chmod(exe, 0755)
+
+	// OpenWrt Procd 托管环境智能协同：
+	// 若存在 /etc/init.d/edt-gateway 且父进程为 procd (PID 1)，当前进程 os.Exit(0) 后
+	// Procd 的 respawn 机制会立即自动拉起新版本，无需再额外派生 sleep 2 子进程导致双实例抢占
+	if _, err := os.Stat("/etc/init.d/edt-gateway"); err == nil && os.Getppid() == 1 {
+		logger.Infof("[Restart] 检测到 OpenWrt Procd 守护环境，交由 Procd respawn 原生平滑拉起新进程")
+		return nil
+	}
 
 	// 1. 处理所有命令行参数，特别是 -config 参数的路径绝对化
 	var cmdArgs []string
